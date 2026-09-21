@@ -6,10 +6,9 @@ writes or how many files it touches, and that is the problem `mater` exists to s
 ## The two problems
 
 One large Rust workspace build measures 7.8 GB across 27,412 intermediate files, against
-615 MB in 26 final artifacts. About 93% of the bytes and 99.9% of the file churn is
-intermediates.
-Five concurrent worktrees is roughly 42 GB and 137,000 files. Fifty-five checkouts is
-several hundred GB.
+615 MB in 26 final artifacts. Intermediates account for about 93% of the bytes and 99.9% of
+the file churn. Five concurrent worktrees produce roughly 42 GB and 137,000 files, and
+fifty-five checkouts produce several hundred GB.
 
 Defender follows that churn. During concurrent builds `wdavdaemon_unprivileged` sat at 36%
 CPU and `wdavdaemon_enterprise` at 17%.
