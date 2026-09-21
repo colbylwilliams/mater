@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/mater.png" alt="Mater" width="250">
+</p>
+
 # mater
 
 Sir Tow Mater MBE, better known as Mater, makes rust look good (ironically written in go)
