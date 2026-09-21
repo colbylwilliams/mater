@@ -13,9 +13,9 @@ func item(kind Kind, state State, idle time.Duration) Item {
 	return it
 }
 
-// prune must never take output it cannot prove is abandoned. Unknown state
-// means no workspace was ever recorded, which is exactly the case where the
-// directory may belong to a repo mater has never scanned.
+// The orphan scope must never take output it cannot prove is abandoned.
+// Unknown state means no workspace was ever recorded, which is exactly the case
+// where the directory may belong to a repo mater has never scanned.
 func TestScopeOrphansTakesOnlyProvenOrphans(t *testing.T) {
 	sv := &Survey{Items: []Item{
 		item(KindBuildDir, StateOrphan, time.Hour),
@@ -51,13 +51,50 @@ func TestScopeStaleTakesOrphansAtAnyAge(t *testing.T) {
 	}
 }
 
+// Attribution proves abandonment, not idleness. Age is measured from the output
+// itself, so a stale run reaches unattributed directories that the orphan scope
+// deliberately leaves alone.
+func TestStaleScopesTakeUnattributedIdleOutput(t *testing.T) {
+	sv := &Survey{Items: []Item{item(KindBuildDir, StateUnknown, 10*24*time.Hour)}}
+
+	for _, scope := range []Scope{ScopeStale, ScopeStaleOnly} {
+		if sel := sv.Select(scope, 5*24*time.Hour, true); len(sel.Items) != 1 {
+			t.Errorf("scope %v selected %d items, want 1", scope, len(sel.Items))
+		}
+	}
+}
+
 // A directory with no usable timestamp must not be swept up by an age filter:
 // absence of evidence is not evidence of idleness.
-func TestScopeStaleSkipsUntimestampedOutput(t *testing.T) {
+func TestStaleScopesSkipUntimestampedOutput(t *testing.T) {
 	sv := &Survey{Items: []Item{{Kind: KindBuildDir, State: StateLive}}}
 
-	if sel := sv.Select(ScopeStale, time.Nanosecond, true); len(sel.Items) != 0 {
-		t.Fatalf("selected %d items, want 0", len(sel.Items))
+	for _, scope := range []Scope{ScopeStale, ScopeStaleOnly} {
+		if sel := sv.Select(scope, time.Nanosecond, true); len(sel.Items) != 0 {
+			t.Fatalf("scope %v selected %d items, want 0", scope, len(sel.Items))
+		}
+	}
+}
+
+// --skip-orphans has to hold for every orphan, including one old enough that
+// the age filter would otherwise have claimed it on its own.
+func TestScopeStaleOnlyLeavesOrphansAlone(t *testing.T) {
+	sv := &Survey{Items: []Item{
+		item(KindBuildDir, StateOrphan, time.Minute),     // abandoned, fresh
+		item(KindBuildDir, StateOrphan, 10*24*time.Hour), // abandoned and idle
+		item(KindBuildDir, StateLive, 10*24*time.Hour),   // idle
+		item(KindBuildDir, StateLive, 10*time.Minute),    // fresh
+	}}
+
+	sel := sv.Select(ScopeStaleOnly, 5*24*time.Hour, true)
+	if len(sel.Items) != 1 {
+		t.Fatalf("selected %d items, want 1", len(sel.Items))
+	}
+	if sel.Orphans != 0 {
+		t.Errorf("Orphans = %d, want 0 — an orphan was taken", sel.Orphans)
+	}
+	if sel.Items[0].State != StateLive {
+		t.Errorf("selected state %v, want live", sel.Items[0].State)
 	}
 }
 

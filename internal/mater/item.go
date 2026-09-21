@@ -42,8 +42,9 @@ const (
 	// since been deleted, so nothing will ever use it again.
 	StateOrphan
 	// StateUnknown means no workspace was ever recorded for the output. An
-	// unknown item is never treated as an orphan, which is what keeps output
-	// from an unscanned repo out of reach of `prune`.
+	// unknown item is never treated as an orphan, so a bare `prune` leaves it
+	// alone. It is still reachable by age: idleness is measured from the output
+	// itself and needs no attribution.
 	StateUnknown
 )
 

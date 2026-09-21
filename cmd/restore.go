@@ -174,7 +174,7 @@ func reportBlocked(u *ui.UI, items []reap.Staged) {
 			u.Note("    %s — something already occupies that path", mater.ShortPath(s.Origin))
 		}
 	}
-	u.Note("    these stay staged and will be deleted by the next prune or clean")
+	u.Note("    these stay staged and will be deleted by the next prune or nuke")
 }
 
 func totalStaged(items []reap.Staged) int64 {

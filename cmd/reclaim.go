@@ -16,13 +16,14 @@ import (
 type reclaimOpts struct {
 	scope          mater.Scope
 	stale          string
+	skipOrphans    bool
 	dryRun         bool
 	yes            bool
 	includeRunning bool
 	force          bool
 }
 
-// addReclaimFlags registers the flags common to prune and clean.
+// addReclaimFlags registers the flags common to prune and nuke.
 func addReclaimFlags(cmd *cobra.Command, o *reclaimOpts) {
 	f := cmd.Flags()
 	f.BoolVarP(&o.dryRun, "dry-run", "n", false, "report what would be removed without removing it")
@@ -37,14 +38,8 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	u, cfg := shared.ui, shared.cfg
 
 	var age time.Duration
-	if o.scope == mater.ScopeStale {
-		// --stale may be given with no value, in which case pflag substitutes
-		// the no-option default and the threshold comes from config.
-		v := strings.TrimSpace(o.stale)
-		if v == "" {
-			v = cfg.StaleAge
-		}
-		parsed, err := mater.ParseAge(v)
+	if o.scope == mater.ScopeStale || o.scope == mater.ScopeStaleOnly {
+		parsed, err := staleAge(o.stale, cfg.StaleAge)
 		if err != nil {
 			return err
 		}
@@ -63,7 +58,7 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 		if !o.dryRun {
 			// Rendered as a single sentence: the error presenter reflows and
 			// capitalises whatever it is given.
-			return fmt.Errorf("a full clean would corrupt the build that is currently running; " +
+			return fmt.Errorf("a full nuke would corrupt the build that is currently running; " +
 				"wait for rustc to finish, re-run with --force, or use 'mater prune --stale' to take only idle output")
 		}
 		u.Warning("rustc is running — a real run would refuse (use --force, or 'mater prune --stale')")
@@ -195,6 +190,73 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	return nil
 }
 
+// parseStale validates a value supplied for --stale. A blank value asked to
+// supply an age and supplied none, which is what an unset variable in a script
+// looks like, so it fails rather than being read as the bare form.
+func parseStale(v string) (time.Duration, error) {
+	if strings.TrimSpace(v) == "" {
+		// Rendered as a single sentence: the error presenter capitalises the
+		// first word, so the message must not start with a flag name.
+		return 0, fmt.Errorf("no age given: --stale was supplied an empty value; pass an age " +
+			"like 8h, or give --stale on its own to use the threshold from config")
+	}
+	return mater.ParseAge(v)
+}
+
+// staleAge resolves the threshold a stale run measures against. Given bare,
+// --stale carries the sentinel and the threshold comes from config; anything
+// else is a value the caller supplied, and is held to the same standard
+// wherever it arrived from.
+func staleAge(flag, configured string) (time.Duration, error) {
+	if flag == staleFromConfig {
+		return mater.ParseAge(configured)
+	}
+	return parseStale(flag)
+}
+
+// staleFromConfig is the value pflag substitutes when --stale is given with no
+// value, marking the threshold as coming from config. It is a NUL byte for two
+// reasons: pflag reads an empty NoOptDefVal as the flag having no
+// optional-value form at all, and a NUL cannot appear inside an argv entry, so
+// no command line can forge the bare form and slip past the checks in staleAge.
+const staleFromConfig = "\x00"
+
+// staleArgs rescues the value of an optional-value flag. --stale carries a
+// NoOptDefVal so that it can be given bare, and pflag never consumes the
+// following argument for such a flag, so `--stale 8h` arrives as a bare --stale
+// plus a stray positional. That positional is the flag's value, not a command.
+func staleArgs(o *reclaimOpts) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == 1 && o.stale == staleFromConfig {
+			if _, err := parseStale(args[0]); err != nil {
+				return err
+			}
+			o.stale = args[0]
+			return nil
+		}
+		return cobra.NoArgs(cmd, args)
+	}
+}
+
+// pruneScope turns the scope flags into a selection scope. Orphans are taken by
+// default because nothing will ever use them again; --skip-orphans opts out,
+// which only leaves work to do once --stale has widened the run.
+func pruneScope(stale, skipOrphans bool) (mater.Scope, error) {
+	switch {
+	case stale && skipOrphans:
+		return mater.ScopeStaleOnly, nil
+	case stale:
+		return mater.ScopeStale, nil
+	case skipOrphans:
+		// Rendered as a single sentence: the error presenter capitalises the
+		// first word, so the message must not start with a flag name.
+		return 0, fmt.Errorf("nothing left in scope: --skip-orphans rules out every orphan, " +
+			"so add --stale to take idle output instead, or drop --skip-orphans")
+	default:
+		return mater.ScopeOrphans, nil
+	}
+}
+
 func newPruneCmd() *cobra.Command {
 	o := &reclaimOpts{scope: mater.ScopeOrphans}
 
@@ -210,11 +272,15 @@ ever use it again, so it is removed regardless of age.
 Nothing inside a build directory names the workspace that produced it, so the
 link is recorded in the index as each workspace is seen. A directory is only
 ever called an orphan when the index holds a path for it that no longer exists,
-which is what keeps output from an unscanned repo out of reach.
+which is what keeps output from an unscanned repo out of reach of a bare prune.
 
---stale widens the selection beyond attribution: any output idle past the
-threshold is taken as well, whether its workspace is still live or was never
-recorded at all. Output with no usable timestamp is never taken on age alone.`,
+--stale widens the selection to include output that has sat idle past a
+threshold, attributed or not: age is measured from the output itself, so
+unattributed directories are claimed too. Given bare it uses the configured
+stale_age; given a value, that value instead.
+
+--skip-orphans narrows the other way, leaving abandoned output in place so that
+a run takes only what --stale matched.`,
 		Example: `  # Remove output from deleted worktrees
   mater prune
 
@@ -222,41 +288,56 @@ recorded at all. Output with no usable timestamp is never taken on age alone.`,
   mater prune --dry-run
 
   # Also take anything untouched for a week
-  mater prune --stale 1w`,
-		Args: cobra.NoArgs,
+  mater prune --stale 1w
+
+  # Use the threshold from config
+  mater prune --stale
+
+  # Take only idle output, leaving deleted worktrees alone
+  mater prune --stale 8h --skip-orphans`,
+		Args: staleArgs(o),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if cmd.Flags().Changed("stale") {
-				o.scope = mater.ScopeStale
+			scope, err := pruneScope(cmd.Flags().Changed("stale"), o.skipOrphans)
+			if err != nil {
+				return err
 			}
+			o.scope = scope
 			return runReclaim(cmd, o)
 		},
 	}
 
 	addReclaimFlags(cmd, o)
-	cmd.Flags().StringVar(&o.stale, "stale", "",
+	f := cmd.Flags()
+	f.StringVarP(&o.stale, "stale", "s", "",
 		"also remove output idle this long: 45m, 6h, 2d, 1w (default from config)")
-	cmd.Flags().Lookup("stale").NoOptDefVal = " "
+	f.Lookup("stale").NoOptDefVal = staleFromConfig
+	f.BoolVarP(&o.skipOrphans, "skip-orphans", "o", false,
+		"leave output whose workspace is gone in place")
 	return cmd
 }
 
-func newCleanCmd() *cobra.Command {
+func newNukeCmd() *cobra.Command {
 	o := &reclaimOpts{scope: mater.ScopeAll}
 
 	cmd := &cobra.Command{
-		Use:     "clean",
+		Use:     "nuke",
 		GroupID: "reclaim",
 		Short:   "Remove all build output",
 		Long: `Remove every build directory, target/, and node_modules that mater knows about,
 regardless of age or ownership.
 
+This is the widest thing mater does: it takes output belonging to workspaces
+you are still using, so the next build in every one of them starts cold. Reach
+for 'mater prune' first, which takes only what is abandoned or idle.
+
 This refuses while any compiler is running, because output taken out from under
 an in-flight build corrupts it. Output that a live process is executing from or
 sitting inside is held back and reported.`,
-		Example: `  # Preview a full clean
-  mater clean --dry-run
+		Example: `  # Preview a full nuke
+  mater nuke --dry-run
 
   # Free everything without confirming
-  mater clean --yes`,
+  mater nuke --yes`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runReclaim(cmd, o)
