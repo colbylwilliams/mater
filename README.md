@@ -12,10 +12,8 @@ Sir Tow Mater MBE, better known as Mater, makes rust look good (ironically writt
 
 Cargo writes intermediates into a `target/` directory inside every checkout. Across dozens of worktrees that is two problems:
 
-- **Size.** Build output dwarfs the source it came from, and a deleted worktree leaves its
-intermediates behind forever.
-- **Scanning.** Real-time malware scanning follows every file a compiler writes. Worktree
-paths change constantly, so an exclusion list goes stale as soon as one is created.
+- **Size.** Build output dwarfs the source it came from, and a deleted worktree leaves its intermediates behind forever.
+- **Scanning.** Real-time malware scanning follows every file a compiler writes. Worktree paths change constantly, so an exclusion list goes stale as soon as one is created.
 
 Pointing `build.build-dir` at one stable root fixes both. You exclude that root from scanning once, and `mater` tracks which workspace produced each directory so abandoned output can be removed safely.
 
