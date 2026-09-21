@@ -93,7 +93,7 @@ func newIndexRefreshCmd() *cobra.Command {
 		Short: "Record the build directory of each live workspace",
 		Long: `Ask Cargo which build directory each workspace maps to, and record the answer.
 
-This runs automatically before every prune and clean. Run it by hand to add a
+This runs automatically before every prune and nuke. Run it by hand to add a
 workspace outside the auto-discovered worktree roots; a path given here is
 resolved even though it would not normally be scanned.`,
 		Example: `  mater index refresh

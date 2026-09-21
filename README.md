@@ -73,10 +73,15 @@ mater doctor
 | --- | --- |
 | `mater prune` | Remove output whose workspace has been deleted |
 | `mater prune --stale 1w` | Also remove output idle past a threshold |
-| `mater clean` | Remove everything |
+| `mater prune -s 8h -o` | Remove only idle output, leaving deleted worktrees in place |
+| `mater nuke` | Remove everything |
 | `mater restore` | Stop a delete in progress and put back what it has not reached |
 
-`prune` and `clean` accept `--dry-run`, `--yes`, `--include-running`, and `--force`.
+`prune` and `nuke` accept `--dry-run`, `--yes`, `--include-running`, and `--force`.
+
+`--stale`/`-s` takes an age — `45m`, `6h`, `2d`, `1w`, or a bare number of days — and
+falls back to `stale_age` from config when given on its own. `--skip-orphans`/`-o`
+narrows a stale run to output that still has a workspace.
 
 ### Setup
 
@@ -98,7 +103,7 @@ stays unattributed and out of reach of `prune`.
 **Live output is held back.** A running app executes from its own `target/debug` and
 serves from its own `node_modules`, and it may have been built days before it was
 launched, so age alone is not proof of idleness. Every process's arguments and working
-directory are checked before anything moves. `mater clean` additionally refuses while
+directory are checked before anything moves. `mater nuke` additionally refuses while
 any compiler is running, because per-directory detection cannot see a `rustc` that
 starts moments from now.
 

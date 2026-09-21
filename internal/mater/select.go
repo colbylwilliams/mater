@@ -11,6 +11,9 @@ const (
 	ScopeOrphans Scope = iota
 	// ScopeStale takes orphans plus output that has sat idle past a threshold.
 	ScopeStale
+	// ScopeStaleOnly takes idle output but leaves orphans where they are. It
+	// narrows a run to output still attached to a workspace.
+	ScopeStaleOnly
 	// ScopeAll takes every piece of build output that was found.
 	ScopeAll
 )
@@ -64,13 +67,24 @@ func claims(it Item, scope Scope, age time.Duration) bool {
 		if it.Kind == KindBuildDir && it.State == StateOrphan {
 			return true
 		}
-		if it.LastBuilt.IsZero() {
-			// No usable timestamp is not evidence of idleness.
+		return idle(it, age)
+
+	case ScopeStaleOnly:
+		if it.Kind == KindBuildDir && it.State == StateOrphan {
 			return false
 		}
-		return time.Since(it.LastBuilt) >= age
+		return idle(it, age)
 
 	default:
 		return false
 	}
+}
+
+// idle reports whether an item has sat untouched for at least age. No usable
+// timestamp is not evidence of idleness, so it never qualifies.
+func idle(it Item, age time.Duration) bool {
+	if it.LastBuilt.IsZero() {
+		return false
+	}
+	return time.Since(it.LastBuilt) >= age
 }
