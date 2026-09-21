@@ -191,10 +191,10 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 }
 
 // staleAge resolves the threshold a stale run measures against. Given bare,
-// --stale carries the sentinel and the threshold comes from config. An
-// explicitly empty --stale= is a different thing: it asked to supply a value
-// and supplied none, which is what an unset variable in a script looks like, so
-// it fails rather than quietly falling back.
+// --stale carries the sentinel and the threshold comes from config. A value
+// that is empty or blank is a different thing: it asked to supply an age and
+// supplied none, which is what an unset variable in a script looks like, so it
+// fails rather than quietly falling back.
 func staleAge(flag, configured string) (time.Duration, error) {
 	switch {
 	case flag == staleFromConfig:
@@ -210,9 +210,11 @@ func staleAge(flag, configured string) (time.Duration, error) {
 }
 
 // staleFromConfig is the value pflag substitutes when --stale is given with no
-// value, marking the threshold as coming from config. It cannot be empty: pflag
-// reads an empty NoOptDefVal as the flag having no optional-value form at all.
-const staleFromConfig = " "
+// value, marking the threshold as coming from config. It is a NUL byte for two
+// reasons: pflag reads an empty NoOptDefVal as the flag having no
+// optional-value form at all, and a NUL cannot appear inside an argv entry, so
+// no command line can forge the bare form and slip past the checks in staleAge.
+const staleFromConfig = "\x00"
 
 // staleArgs rescues the value of an optional-value flag. --stale carries a
 // NoOptDefVal so that it can be given bare, and pflag never consumes the

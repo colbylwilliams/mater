@@ -89,6 +89,7 @@ func TestStaleAge(t *testing.T) {
 		{"an explicit value wins", "8h", 8 * time.Hour, false},
 		{"an empty value is rejected", "", 0, true},
 		{"a whitespace value is rejected", "   ", 0, true},
+		{"a single space cannot forge the sentinel", " ", 0, true},
 		{"an unparseable value is rejected", "zz", 0, true},
 	}
 
