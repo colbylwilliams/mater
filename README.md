@@ -118,7 +118,7 @@ build_root: ~/.rust-build
 # Extra checkouts to scan. Copilot worktrees are discovered automatically from
 # session state, so list only repos outside them.
 roots:
-  - ~/GitHub/github/copilot-host
+  - ~/GitHub/example/my-repo
 
 stale_age: 5d
 scan_node_modules: true
