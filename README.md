@@ -98,7 +98,8 @@ narrows a stale run to output that still has a workspace.
 workspace that produced it, so `mater` records the link — obtained from Cargo itself —
 as each workspace is seen. A directory is only ever called an orphan when the index
 holds a path for it that no longer exists. Output from a repo `mater` has never scanned
-stays unattributed and out of reach of `prune`.
+stays unattributed, and a bare `prune` leaves it alone. `--stale` still reaches it:
+idleness is measured from the output itself, so it needs no attribution.
 
 **Live output is held back.** A running app executes from its own `target/debug` and
 serves from its own `node_modules`, and it may have been built days before it was

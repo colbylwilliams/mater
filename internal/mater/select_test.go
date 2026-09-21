@@ -13,9 +13,9 @@ func item(kind Kind, state State, idle time.Duration) Item {
 	return it
 }
 
-// prune must never take output it cannot prove is abandoned. Unknown state
-// means no workspace was ever recorded, which is exactly the case where the
-// directory may belong to a repo mater has never scanned.
+// The orphan scope must never take output it cannot prove is abandoned.
+// Unknown state means no workspace was ever recorded, which is exactly the case
+// where the directory may belong to a repo mater has never scanned.
 func TestScopeOrphansTakesOnlyProvenOrphans(t *testing.T) {
 	sv := &Survey{Items: []Item{
 		item(KindBuildDir, StateOrphan, time.Hour),
@@ -48,6 +48,19 @@ func TestScopeStaleTakesOrphansAtAnyAge(t *testing.T) {
 	sel := sv.Select(ScopeStale, 5*24*time.Hour, true)
 	if len(sel.Items) != 3 {
 		t.Fatalf("selected %d items, want 3", len(sel.Items))
+	}
+}
+
+// Attribution proves abandonment, not idleness. Age is measured from the output
+// itself, so a stale run reaches unattributed directories that the orphan scope
+// deliberately leaves alone.
+func TestStaleScopesTakeUnattributedIdleOutput(t *testing.T) {
+	sv := &Survey{Items: []Item{item(KindBuildDir, StateUnknown, 10*24*time.Hour)}}
+
+	for _, scope := range []Scope{ScopeStale, ScopeStaleOnly} {
+		if sel := sv.Select(scope, 5*24*time.Hour, true); len(sel.Items) != 1 {
+			t.Errorf("scope %v selected %d items, want 1", scope, len(sel.Items))
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"testing"
+	"time"
 
 	"github.com/colbylwilliams/mater/internal/mater"
 )
@@ -71,6 +72,42 @@ func TestPruneRejectsArgumentsThatAreNotStaleValues(t *testing.T) {
 		if _, err := parsePrune(t, args...); err == nil {
 			t.Errorf("%v: parsed without error, want a rejection", args)
 		}
+	}
+}
+
+// Given bare, --stale defers to config. An explicitly empty value asked to
+// supply an age and supplied none, which is an unset variable in a script, so
+// it has to fail rather than quietly becoming the configured default.
+func TestStaleAge(t *testing.T) {
+	tests := []struct {
+		name    string
+		flag    string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"bare defers to config", staleFromConfig, 5 * 24 * time.Hour, false},
+		{"an explicit value wins", "8h", 8 * time.Hour, false},
+		{"an empty value is rejected", "", 0, true},
+		{"a whitespace value is rejected", "   ", 0, true},
+		{"an unparseable value is rejected", "zz", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := staleAge(tt.flag, "5d")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("staleAge(%q) = %v, want an error", tt.flag, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("staleAge(%q) = %v, want %v", tt.flag, got, tt.want)
+			}
+		})
 	}
 }
 

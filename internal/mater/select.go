@@ -9,10 +9,10 @@ const (
 	// ScopeOrphans takes only output whose workspace has been deleted. Nothing
 	// will ever use it again, so it is safe at any age.
 	ScopeOrphans Scope = iota
-	// ScopeStale takes orphans plus output that has sat idle past a threshold.
+	// ScopeStale takes orphans plus anything that has sat idle past a
+	// threshold, attributed or not: age is measured from the output itself.
 	ScopeStale
-	// ScopeStaleOnly takes idle output but leaves orphans where they are. It
-	// narrows a run to output still attached to a workspace.
+	// ScopeStaleOnly takes idle output but leaves orphans where they are.
 	ScopeStaleOnly
 	// ScopeAll takes every piece of build output that was found.
 	ScopeAll

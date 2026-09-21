@@ -39,13 +39,7 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 
 	var age time.Duration
 	if o.scope == mater.ScopeStale || o.scope == mater.ScopeStaleOnly {
-		// --stale may be given with no value, in which case pflag substitutes
-		// the no-option default and the threshold comes from config.
-		v := strings.TrimSpace(o.stale)
-		if v == "" {
-			v = cfg.StaleAge
-		}
-		parsed, err := mater.ParseAge(v)
+		parsed, err := staleAge(o.stale, cfg.StaleAge)
 		if err != nil {
 			return err
 		}
@@ -196,6 +190,25 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	return nil
 }
 
+// staleAge resolves the threshold a stale run measures against. Given bare,
+// --stale carries the sentinel and the threshold comes from config. An
+// explicitly empty --stale= is a different thing: it asked to supply a value
+// and supplied none, which is what an unset variable in a script looks like, so
+// it fails rather than quietly falling back.
+func staleAge(flag, configured string) (time.Duration, error) {
+	switch {
+	case flag == staleFromConfig:
+		return mater.ParseAge(configured)
+	case strings.TrimSpace(flag) == "":
+		// Rendered as a single sentence: the error presenter capitalises the
+		// first word, so the message must not start with a flag name.
+		return 0, fmt.Errorf("no age given: --stale was supplied an empty value; pass an age " +
+			"like 8h, or give --stale on its own to use the threshold from config")
+	default:
+		return mater.ParseAge(flag)
+	}
+}
+
 // staleFromConfig is the value pflag substitutes when --stale is given with no
 // value, marking the threshold as coming from config. It cannot be empty: pflag
 // reads an empty NoOptDefVal as the flag having no optional-value form at all.
@@ -252,10 +265,11 @@ ever use it again, so it is removed regardless of age.
 Nothing inside a build directory names the workspace that produced it, so the
 link is recorded in the index as each workspace is seen. A directory is only
 ever called an orphan when the index holds a path for it that no longer exists,
-which is what keeps output from an unscanned repo out of reach.
+which is what keeps output from an unscanned repo out of reach of a bare prune.
 
---stale widens the selection to include output that is still attached to a live
-workspace but has sat idle past a threshold. Given bare it uses the configured
+--stale widens the selection to include output that has sat idle past a
+threshold, attributed or not: age is measured from the output itself, so
+unattributed directories are claimed too. Given bare it uses the configured
 stale_age; given a value, that value instead.
 
 --skip-orphans narrows the other way, leaving abandoned output in place so that
