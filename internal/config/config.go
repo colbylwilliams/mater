@@ -163,8 +163,8 @@ const Template = `# mater configuration
 # Extra checkouts to scan for target/ and node_modules. Copilot worktrees are
 # discovered automatically, so list only repos outside them.
 # roots:
-#   - ~/GitHub/github/copilot-host
-#   - ~/GitHub/github/github-app
+#   - ~/GitHub/example/my-repo
+#   - ~/GitHub/example/other-repo
 
 # Override worktree discovery. Leave unset to derive worktree parents from
 # Copilot session state, which adapts as new worktree roots appear.
