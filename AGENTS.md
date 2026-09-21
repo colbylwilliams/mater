@@ -30,4 +30,5 @@ The review loop is the same every time; run it without being asked.
 - **Don't hard-wrap prose.** Write one line per paragraph or list item and let the renderer wrap it; only break where it's semantically meaningful.
 - **Write docs as current fact, not as a proposal or a history.** Present tense, no "will", and none of the session- or PR-era narration you'd strip from a comment.
 - **Reference files as basename links** — [`reap.go`](internal/reap/reap.go), not a bare inline-code path — so the reader gets a click-through.
+- **Keep real repository and account names out of samples.** Config templates, documentation examples, and test fixtures use placeholders like `~/GitHub/example/my-repo`, so nothing `mater` writes into a user's config — or ships in the repo — names someone's actual private repo.
 - **Behaviour and the README move together.** The README documents the safety model users rely on; a change to what `mater` deletes, holds back, or can restore updates it in the same PR.
