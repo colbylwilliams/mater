@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,25 @@ func TestStaleAge(t *testing.T) {
 				t.Errorf("staleAge(%q) = %v, want %v", tt.flag, got, tt.want)
 			}
 		})
+	}
+}
+
+// The same mistake has to read the same way whichever spelling produced it. A
+// blank value rejected out of the positionals gets the guided message, not the
+// terser one the age parser would give.
+func TestBlankStalePositionalReadsLikeTheFlag(t *testing.T) {
+	for _, args := range [][]string{
+		{"--stale", " "},
+		{"-s", "   "},
+	} {
+		_, err := parsePrune(t, args...)
+		if err == nil {
+			t.Errorf("%v: parsed without error, want a rejection", args)
+			continue
+		}
+		if !strings.Contains(err.Error(), "no age given") {
+			t.Errorf("%v: error = %q, want the guided message", args, err)
+		}
 	}
 }
 

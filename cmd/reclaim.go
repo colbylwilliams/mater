@@ -190,23 +190,28 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	return nil
 }
 
-// staleAge resolves the threshold a stale run measures against. Given bare,
-// --stale carries the sentinel and the threshold comes from config. A value
-// that is empty or blank is a different thing: it asked to supply an age and
-// supplied none, which is what an unset variable in a script looks like, so it
-// fails rather than quietly falling back.
-func staleAge(flag, configured string) (time.Duration, error) {
-	switch {
-	case flag == staleFromConfig:
-		return mater.ParseAge(configured)
-	case strings.TrimSpace(flag) == "":
+// parseStale validates a value supplied for --stale. A blank value asked to
+// supply an age and supplied none, which is what an unset variable in a script
+// looks like, so it fails rather than being read as the bare form.
+func parseStale(v string) (time.Duration, error) {
+	if strings.TrimSpace(v) == "" {
 		// Rendered as a single sentence: the error presenter capitalises the
 		// first word, so the message must not start with a flag name.
 		return 0, fmt.Errorf("no age given: --stale was supplied an empty value; pass an age " +
 			"like 8h, or give --stale on its own to use the threshold from config")
-	default:
-		return mater.ParseAge(flag)
 	}
+	return mater.ParseAge(v)
+}
+
+// staleAge resolves the threshold a stale run measures against. Given bare,
+// --stale carries the sentinel and the threshold comes from config; anything
+// else is a value the caller supplied, and is held to the same standard
+// wherever it arrived from.
+func staleAge(flag, configured string) (time.Duration, error) {
+	if flag == staleFromConfig {
+		return mater.ParseAge(configured)
+	}
+	return parseStale(flag)
 }
 
 // staleFromConfig is the value pflag substitutes when --stale is given with no
@@ -223,7 +228,7 @@ const staleFromConfig = "\x00"
 func staleArgs(o *reclaimOpts) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) == 1 && o.stale == staleFromConfig {
-			if _, err := mater.ParseAge(args[0]); err != nil {
+			if _, err := parseStale(args[0]); err != nil {
 				return err
 			}
 			o.stale = args[0]
