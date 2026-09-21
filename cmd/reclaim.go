@@ -212,8 +212,9 @@ link is recorded in the index as each workspace is seen. A directory is only
 ever called an orphan when the index holds a path for it that no longer exists,
 which is what keeps output from an unscanned repo out of reach.
 
---stale widens the selection to include output that is still attached to a live
-workspace but has sat idle past a threshold.`,
+--stale widens the selection beyond attribution: any output idle past the
+threshold is taken as well, whether its workspace is still live or was never
+recorded at all. Output with no usable timestamp is never taken on age alone.`,
 		Example: `  # Remove output from deleted worktrees
   mater prune
 

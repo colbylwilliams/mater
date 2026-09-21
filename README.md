@@ -84,7 +84,7 @@ mater doctor
 
 ## How it decides what is safe
 
-**Orphans are proven, not guessed.** Nothing inside a build directory names the workspace that produced it, so `mater` records the link from Cargo as each workspace is seen. A directory is an orphan only when the index holds a path that no longer exists. Output from a repo `mater` has never seen stays out of reach of `prune`.
+**Orphans are proven, not guessed.** Nothing inside a build directory names the workspace that produced it, so `mater` records the link from Cargo as each workspace is seen. A directory is an orphan only when the index holds a path that no longer exists. Output from a repo `mater` has never seen is never called an orphan, so plain `prune` leaves it alone. Only `--stale`, which selects on idle time instead of attribution, can reach it.
 
 **Live output is held back.** Age is not proof of idleness, since an app can run for days from a `target/debug` it built long ago. `mater` checks every process's arguments and working directory before moving anything. `clean` also refuses while a compiler is running.
 
