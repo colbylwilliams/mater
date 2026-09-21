@@ -10,17 +10,12 @@ Sir Tow Mater MBE, better known as Mater, makes rust look good (ironically writt
 
 ## Why
 
-Cargo writes intermediates into a `target/` directory inside every checkout. Across dozens
-of worktrees that is two problems:
+Cargo writes intermediates into a `target/` directory inside every checkout. Across dozens of worktrees that is two problems:
 
-- **Size.** Build output dwarfs the source it came from, and a deleted worktree leaves its
-  intermediates behind forever.
-- **Scanning.** Real-time malware scanning follows every file a compiler writes. Worktree
-  paths change constantly, so an exclusion list goes stale as soon as one is created.
+- **Size.** Build output dwarfs the source it came from, and a deleted worktree leaves its intermediates behind forever.
+- **Scanning.** Real-time malware scanning follows every file a compiler writes. Worktree paths change constantly, so an exclusion list goes stale as soon as one is created.
 
-Pointing `build.build-dir` at one stable root fixes both. You exclude that root from
-scanning once, and `mater` tracks which workspace produced each directory so abandoned
-output can be removed safely.
+Pointing `build.build-dir` at one stable root fixes both. You exclude that root from scanning once, and `mater` tracks which workspace produced each directory so abandoned output can be removed safely.
 
 Already using a build cache? See [Why not just use sccache, kache, or mbx?](docs/alternatives.md)
 
@@ -79,9 +74,7 @@ mater doctor
 
 `prune` and `nuke` accept `--dry-run`, `--yes`, `--include-running`, and `--force`.
 
-`--stale`/`-s` takes an age — `45m`, `6h`, `2d`, `1w`, or a bare number of days — and
-falls back to `stale_age` from config when given on its own. `--skip-orphans`/`-o`
-narrows a stale run to output that has not already been abandoned.
+`--stale`/`-s` takes an age — `45m`, `6h`, `2d`, `1w`, or a bare number of days — and falls back to `stale_age` from config when given on its own. `--skip-orphans`/`-o` narrows a stale run to output that has not already been abandoned.
 
 ### Setup
 
@@ -94,29 +87,17 @@ narrows a stale run to output that has not already been abandoned.
 
 ## How it decides what is safe
 
-**Orphans are proven, not guessed.** Nothing inside a build directory names the workspace
-that produced it, so `mater` records the link from Cargo as each workspace is seen. A
-directory is an orphan only when the index holds a path that no longer exists. Output from a
-repo `mater` has never seen stays unattributed, and a bare `prune` leaves it alone —
-`--stale` still reaches it, since idleness needs no attribution.
+**Orphans are proven, not guessed.** Nothing inside a build directory names the workspace that produced it, so `mater` records the link from Cargo as each workspace is seen. A directory is an orphan only when the index holds a path that no longer exists. Output from a repo `mater` has never seen stays unattributed, and a bare `prune` leaves it alone — `--stale` still reaches it, since idleness needs no attribution.
 
-**Live output is held back.** Age is not proof of idleness, since an app can run for days
-from a `target/debug` it built long ago. `mater` checks every process's arguments and
-working directory before moving anything. `nuke` also refuses while a compiler is running.
+**Live output is held back.** Age is not proof of idleness, since an app can run for days from a `target/debug` it built long ago. `mater` checks every process's arguments and working directory before moving anything. `nuke` also refuses while a compiler is running.
 
-**Deletes do not hold the terminal.** Each directory is renamed into staging on the same
-volume, which is O(1), and a detached worker unlinks it afterwards. Staging lives inside the
-build root, so the unlink churn is not scanned either. A killed worker is adopted on the
-next run.
+**Deletes do not hold the terminal.** Each directory is renamed into staging on the same volume, which is O(1), and a detached worker unlinks it afterwards. Staging lives inside the build root, so the unlink churn is not scanned either. A killed worker is adopted on the next run.
 
-**Undo works mid-delete.** Staged items stay whole until the worker reaches them.
-`mater restore` stops it between items and moves back the rest, leaving alone anything whose
-old path has since been rebuilt.
+**Undo works mid-delete.** Staged items stay whole until the worker reaches them. `mater restore` stops it between items and moves back the rest, leaving alone anything whose old path has since been rebuilt.
 
 ## Configuration
 
-Optional, at `~/.config/mater/config.yaml`. Run `mater config init` to write a commented
-template, or `mater config show` to see what is in effect.
+Optional, at `~/.config/mater/config.yaml`. Run `mater config init` to write a commented template, or `mater config show` to see what is in effect.
 
 ```yaml
 build_root: ~/.rust-build
