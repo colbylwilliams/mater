@@ -9,7 +9,7 @@ import (
 )
 
 // newReapCmd is the detached worker. It is hidden because it is an internal
-// step of 'prune' and 'clean' rather than something to invoke by hand, but it
+// step of 'prune' and 'nuke' rather than something to invoke by hand, but it
 // stays a real subcommand so the parent can re-exec itself and exit.
 func newReapCmd() *cobra.Command {
 	return &cobra.Command{

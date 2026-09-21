@@ -96,7 +96,7 @@ func (s *Snapshot) Check(dir string) bool {
 // RustcRunning reports whether a compiler is live anywhere on the machine.
 //
 // Per-directory detection cannot see a rustc that starts moments from now, so a
-// full clean additionally refuses while any build is in flight. Operations that
+// full nuke additionally refuses while any build is in flight. Operations that
 // only read, or that only take directories whose workspace is already gone, are
 // unaffected.
 func RustcRunning(ctx context.Context) bool {
