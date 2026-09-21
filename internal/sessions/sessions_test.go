@@ -22,7 +22,7 @@ func TestLoadPrefersGitRootAndName(t *testing.T) {
 	write(t, dir, "one", `id: one
 cwd: /work/tree/sub
 git_root: /work/tree
-repository: github/copilot-host
+repository: example/my-repo
 branch: colby/feature
 name: Real name
 summary: Fallback summary
@@ -37,7 +37,7 @@ updated_at: 2026-05-01T02:54:39.687Z
 	if s.Label != "Real name" {
 		t.Errorf("Label = %q, want the name field", s.Label)
 	}
-	if s.Repo != "github/copilot-host" || s.Branch != "colby/feature" {
+	if s.Repo != "example/my-repo" || s.Branch != "colby/feature" {
 		t.Errorf("Repo/Branch = %q/%q", s.Repo, s.Branch)
 	}
 }

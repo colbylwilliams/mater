@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mater.png" alt="Mater" width="250">
+  <img src="docs/assets/mater.png" alt="Mater" width="250">
 </p>
 
 # mater
@@ -10,18 +10,19 @@ Sir Tow Mater MBE, better known as Mater, makes rust look good (ironically writt
 
 ## Why
 
-Cargo writes intermediates into a `target/` directory inside every checkout. Across
-dozens of worktrees that is two problems at once:
+Cargo writes intermediates into a `target/` directory inside every checkout. Across dozens
+of worktrees that is two problems:
 
-1. **Size.** Build output dwarfs the source it came from, and a worktree that has been
-   deleted leaves its intermediates behind forever.
-2. **Scanning.** Real-time malware scanning follows every file a compiler writes. Paths
-   inside worktrees change constantly, so they cannot be exempted — a static exclusion
-   list goes stale the moment a worktree is created.
+- **Size.** Build output dwarfs the source it came from, and a deleted worktree leaves its
+  intermediates behind forever.
+- **Scanning.** Real-time malware scanning follows every file a compiler writes. Worktree
+  paths change constantly, so an exclusion list goes stale as soon as one is created.
 
-Pointing `build.build-dir` at one stable root fixes both. The bytes land in a single
-place, that place is excluded from scanning once, and `mater` keeps track of which
-workspace produced each directory so abandoned output can be removed safely.
+Pointing `build.build-dir` at one stable root fixes both. You exclude that root from
+scanning once, and `mater` tracks which workspace produced each directory so abandoned
+output can be removed safely.
+
+Already using a build cache? See [Why not just use sccache, kache, or mbx?](docs/alternatives.md)
 
 ## Install
 
@@ -44,14 +45,13 @@ Point Cargo at a single build root in `~/.cargo/config.toml`:
 build-dir = "/Users/you/.rust-build/{workspace-path-hash}"
 ```
 
-Exclude that one path from real-time scanning. `mater` never talks to your security
-tooling; it prints the command for you to run:
+Exclude that one path from real-time scanning. `mater` prints the command but never runs it:
 
 ```sh
 mdatp exclusion folder add --path ~/.rust-build
 ```
 
-Then confirm everything is wired up:
+Then check the setup:
 
 ```sh
 mater doctor
@@ -81,7 +81,7 @@ mater doctor
 
 `--stale`/`-s` takes an age — `45m`, `6h`, `2d`, `1w`, or a bare number of days — and
 falls back to `stale_age` from config when given on its own. `--skip-orphans`/`-o`
-narrows a stale run to output that still has a workspace.
+narrows a stale run to output that has not already been abandoned.
 
 ### Setup
 
@@ -94,32 +94,24 @@ narrows a stale run to output that still has a workspace.
 
 ## How it decides what is safe
 
-**An orphan is proven, not guessed.** Nothing inside a build directory names the
-workspace that produced it, so `mater` records the link — obtained from Cargo itself —
-as each workspace is seen. A directory is only ever called an orphan when the index
-holds a path for it that no longer exists. Output from a repo `mater` has never scanned
-stays unattributed, and a bare `prune` leaves it alone. `--stale` still reaches it:
-idleness is measured from the output itself, so it needs no attribution.
+**Orphans are proven, not guessed.** Nothing inside a build directory names the workspace
+that produced it, so `mater` records the link from Cargo as each workspace is seen. A
+directory is an orphan only when the index holds a path that no longer exists. Output from a
+repo `mater` has never seen stays unattributed, and a bare `prune` leaves it alone —
+`--stale` still reaches it, since idleness needs no attribution.
 
-**Live output is held back.** A running app executes from its own `target/debug` and
-serves from its own `node_modules`, and it may have been built days before it was
-launched, so age alone is not proof of idleness. Every process's arguments and working
-directory are checked before anything moves. `mater nuke` additionally refuses while
-any compiler is running, because per-directory detection cannot see a `rustc` that
-starts moments from now.
+**Live output is held back.** Age is not proof of idleness, since an app can run for days
+from a `target/debug` it built long ago. `mater` checks every process's arguments and
+working directory before moving anything. `nuke` also refuses while a compiler is running.
 
-**Deletes do not hold the terminal.** Each victim is renamed into a staging directory on
-the same volume, which is O(1), and a detached worker unlinks it afterwards. Your tree
-is free the moment staging completes. Staging lives inside the build root, so the unlink
-churn of a mass delete is not scanned either. If a worker is killed, the next run adopts
-what it left behind.
+**Deletes do not hold the terminal.** Each directory is renamed into staging on the same
+volume, which is O(1), and a detached worker unlinks it afterwards. Staging lives inside the
+build root, so the unlink churn is not scanned either. A killed worker is adopted on the
+next run.
 
-**A delete can be undone while it runs.** Staging is not just a speed trick: until the
-worker reaches an item it is still whole, and the manifest records where it came from.
-`mater restore` asks the worker to stop — it only ever checks between whole items, so it
-is never interrupted part-way through one — and moves everything it has not reached back
-into place. An item whose old path has since been rebuilt is left alone; the fresh output
-is the one to keep.
+**Undo works mid-delete.** Staged items stay whole until the worker reaches them.
+`mater restore` stops it between items and moves back the rest, leaving alone anything whose
+old path has since been rebuilt.
 
 ## Configuration
 
@@ -132,7 +124,7 @@ build_root: ~/.rust-build
 # Extra checkouts to scan. Copilot worktrees are discovered automatically from
 # session state, so list only repos outside them.
 roots:
-  - ~/GitHub/github/copilot-host
+  - ~/GitHub/example/my-repo
 
 stale_age: 5d
 scan_node_modules: true
