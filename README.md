@@ -4,7 +4,7 @@
 
 # mater
 
-Sir Tow Mater MBE, better known as Mater, makes rust look good (ironically written in go)
+Sir Tow Mater MBE, better known as Mater, makes rust look _so good_ (ironically written in go)
 
 `mater` funnels Rust build output into a single build root and reclaims it on demand.
 
