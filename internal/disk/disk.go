@@ -1,4 +1,5 @@
-// Package disk measures how much space a directory tree actually occupies.
+// Package disk measures how much space a directory tree actually occupies, and
+// how much room is left on the volume holding it.
 package disk
 
 import (
