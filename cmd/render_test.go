@@ -69,8 +69,9 @@ func TestFreeFieldsLabelsTheFirstRowOnly(t *testing.T) {
 func TestVolumesLeadWithTheBuildRoot(t *testing.T) {
 	buildRoot := t.TempDir()
 	root := disk.Volumes(buildRoot)
-	if len(root) != 1 {
-		t.Fatalf("got %d volumes for the build root, want 1", len(root))
+	if len(root) == 0 {
+		// The disk package's own tests pin down which platforms have a backend.
+		t.Skip("free space is not read on this platform")
 	}
 
 	if got := volumes(buildRoot, nil); len(got) != 1 || got[0].Mount != root[0].Mount {

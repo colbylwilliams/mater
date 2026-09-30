@@ -1,6 +1,7 @@
 package disk
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 )
 
 func TestVolumesReportsTheVolumeHoldingAPath(t *testing.T) {
+	requireBackend(t)
 	vols := Volumes(t.TempDir())
 	if len(vols) != 1 {
 		t.Fatalf("got %d volumes, want 1", len(vols))
@@ -27,6 +29,7 @@ func TestVolumesReportsTheVolumeHoldingAPath(t *testing.T) {
 // Every build directory under the build root sits on the same volume, and a
 // summary has to show that volume once rather than once per directory.
 func TestVolumesCountsEachVolumeOnce(t *testing.T) {
+	requireBackend(t)
 	dir := t.TempDir()
 	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
 	for _, p := range []string{a, b} {
@@ -42,6 +45,7 @@ func TestVolumesCountsEachVolumeOnce(t *testing.T) {
 // A build root that has not been created yet still has a volume waiting for
 // it: the one its nearest existing parent is on.
 func TestVolumesResolvesAMissingPathThroughItsParent(t *testing.T) {
+	requireBackend(t)
 	dir := t.TempDir()
 	want := Volumes(dir)
 	got := Volumes(filepath.Join(dir, "not", "built", "yet"))
@@ -56,12 +60,16 @@ func TestVolumesResolvesAMissingPathThroughItsParent(t *testing.T) {
 // Output split across disks has to report each one, since room on one says
 // nothing about the other.
 func TestVolumesReportsEachDistinctVolume(t *testing.T) {
+	requireBackend(t)
 	dir := t.TempDir()
 	other := otherVolume(t, dir)
 
 	vols := Volumes(dir, other, dir)
 	if len(vols) != 2 {
 		t.Fatalf("got %d volumes, want 2", len(vols))
+	}
+	if want := Volumes(dir)[0].Mount; vols[0].Mount != want {
+		t.Errorf("first volume is %q, want %q, the one the first path reached", vols[0].Mount, want)
 	}
 	if vols[0].Mount == vols[1].Mount {
 		t.Errorf("both volumes report mount %q", vols[0].Mount)
@@ -129,4 +137,13 @@ func otherVolume(t *testing.T, dir string) string {
 	}
 	t.Skip("no second volume to compare against")
 	return ""
+}
+
+// requireBackend skips where free space is deliberately not read, so only a
+// platform with a backend is held to reporting volumes.
+func requireBackend(t *testing.T) {
+	t.Helper()
+	if _, err := statVolume(os.TempDir()); errors.Is(err, errors.ErrUnsupported) {
+		t.Skip("free space is not read on this platform")
+	}
 }
