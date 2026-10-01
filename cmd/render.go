@@ -144,12 +144,32 @@ func capacity(v disk.Volume, named bool) string {
 	return s
 }
 
+// A disk with less free space than these is running short, and its figure is
+// coloured to say so. They are in the same binary units FormatSize prints.
+const (
+	freeLow      = 100 << 30
+	freeCritical = 50 << 30
+)
+
+// freeFigure renders the room left on a disk: amber when it is running low,
+// red when it is nearly gone.
+func freeFigure(u *ui.UI, free int64) string {
+	style := u.Size
+	switch {
+	case free < freeCritical:
+		style = style.Foreground(u.Bad.GetForeground())
+	case free < freeLow:
+		style = style.Foreground(u.Warn.GetForeground())
+	}
+	return style.Render(mater.FormatSize(free))
+}
+
 // freeRows are the ledger rows for the room left on each disk, so what is
 // listed can be weighed against what is still available.
 func freeRows(u *ui.UI, vols []disk.Volume) [][2]string {
 	rows := make([][2]string, 0, len(vols))
 	for _, v := range vols {
-		rows = append(rows, [2]string{u.Size.Render(mater.FormatSize(v.Free)),
+		rows = append(rows, [2]string{freeFigure(u, v.Free),
 			"free " + capacity(v, len(vols) > 1)})
 	}
 	return rows
@@ -165,7 +185,7 @@ func freeFields(u *ui.UI, vols []disk.Volume) [][2]string {
 			key = "free space"
 		}
 		rows = append(rows, [2]string{key,
-			u.Size.Render(mater.FormatSize(v.Free)) + " " + capacity(v, len(vols) > 1)})
+			freeFigure(u, v.Free) + " " + capacity(v, len(vols) > 1)})
 	}
 	return rows
 }

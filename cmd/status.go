@@ -20,7 +20,8 @@ and whether a background delete is still running.
 
 Sizes are omitted by default because measuring means walking every tree. Pass
 --size to include them. Free space is always shown, since the filesystem
-reports it directly.`,
+reports it directly; a disk with under 100G free is flagged in amber, and under
+50G in red.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
