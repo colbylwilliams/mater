@@ -29,7 +29,8 @@ that created the worktree, or the checkout's own name.
 
 Sizes are measured by walking each tree, which takes a moment. Pass --fast to
 skip it. The listing ends with the free space left on disk either way: the
-filesystem reports it directly, so it needs no walk.`,
+filesystem reports it directly, so it needs no walk. A disk with under 100G
+free is flagged in amber, and under 50G in red.`,
 		Example: `  # Everything, largest first
   mater list
 

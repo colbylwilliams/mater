@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/colbylwilliams/mater/internal/disk"
 	"github.com/colbylwilliams/mater/internal/mater"
 	"github.com/colbylwilliams/mater/internal/ui"
@@ -148,6 +150,49 @@ func TestFreeFieldsLabelsTheFirstRowOnly(t *testing.T) {
 		if got != want[i] {
 			t.Errorf("row %d = %q, want %q", i, got, want[i])
 		}
+	}
+}
+
+// A disk running short of room is flagged wherever its free figure appears:
+// amber under 100G, red under 50G, and plain above that.
+func TestLowFreeSpaceIsFlagged(t *testing.T) {
+	var out bytes.Buffer
+	u := ui.New(&out, &out)
+	var (
+		plain = u.Size
+		amber = u.Size.Foreground(u.Warn.GetForeground())
+		red   = u.Size.Foreground(u.Bad.GetForeground())
+	)
+	if plain.Render("0") == amber.Render("0") || amber.Render("0") == red.Render("0") {
+		t.Fatal("the styles render alike, so the test cannot tell them apart")
+	}
+
+	tests := []struct {
+		name string
+		free int64
+		want lipgloss.Style
+	}{
+		{"plenty", 1200 * gib, plain},
+		{"exactly 100G", 100 * gib, plain},
+		{"just under 100G", 100*gib - 1, amber},
+		{"exactly 50G", 50 * gib, amber},
+		{"just under 50G", 50*gib - 1, red},
+		{"full", 0, red},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := externalVolume
+			v.Free = tt.free
+			want := tt.want.Render(mater.FormatSize(tt.free))
+
+			if got := freeRows(u, []disk.Volume{v})[0][0]; got != want {
+				t.Errorf("ledger figure = %q, want %q", got, want)
+			}
+			if got := freeFields(u, []disk.Volume{v})[0][1]; !strings.HasPrefix(got, want+" ") {
+				t.Errorf("status field = %q, want it to open with %q", got, want)
+			}
+		})
 	}
 }
 
