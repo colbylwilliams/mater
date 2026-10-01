@@ -170,6 +170,50 @@ func TestNominateFindsASinglePackageWorkspace(t *testing.T) {
 	}
 }
 
+// A probe writes through symlinks, so where a stub would land is decided by
+// the physical path of the nearest surviving directory, not by how dep-info
+// spelled it.
+func TestNominateJudgesWhereAStubWouldLand(t *testing.T) {
+	home := sandboxHome(t)
+	elsewhere, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bd := filepath.Join(home, ".rust-build", "ab", "0123456789abcd")
+	live := filepath.Join(home, "live")
+	writeFile(t, filepath.Join(live, "Cargo.toml"), "[workspace]\n")
+	if err := os.MkdirAll(filepath.Join(live, "crates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".cargo", "registry", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		"away":     elsewhere,                                        // outside home
+		"cache":    filepath.Join(home, ".cargo", "registry", "src"), // into Cargo's cache
+		"inner":    filepath.Join(live, "crates"),                    // into a live project
+		"homeward": home,                                             // straight back to home
+	} {
+		if err := os.Symlink(target, filepath.Join(home, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeFile(t, filepath.Join(bd, "debug", "deps", "a-1.d"), depInfo(
+		[]string{bd + "/debug/deps/a-1.d"},
+		[]string{
+			home + "/away/gone/clippy.toml",
+			home + "/cache/idx/serde/src/lib.rs",
+			home + "/inner/removed/src/lib.rs",
+			home + "/homeward/gone/clippy.toml",
+		},
+	))
+
+	if got := Nominate(bd); len(got) != 0 {
+		t.Errorf("Nominate offered %v, want nothing", got)
+	}
+}
+
 func TestNominateIsBounded(t *testing.T) {
 	home := sandboxHome(t)
 	bd := filepath.Join(home, ".rust-build", "ab", "0123456789abcd")

@@ -104,16 +104,7 @@ func Probe(ctx context.Context, dir string) (string, bool) {
 // sameDir compares two directories as Cargo sees them, which is with symlinks
 // resolved.
 func sameDir(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	resolve := func(p string) string {
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			return r
-		}
-		return filepath.Clean(p)
-	}
-	return resolve(a) == resolve(b)
+	return a != "" && b != "" && physical(a) == physical(b)
 }
 
 // ProbeAll probes dirs concurrently and reports what each one resolved to.

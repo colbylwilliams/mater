@@ -150,6 +150,10 @@ func depFields(line string) []string {
 // project that still exists. A directory missing from a live project was
 // removed from that project, not deleted along with a workspace, and a stub
 // inside one is answered for the project rather than for itself.
+//
+// A stub is written through symlinks, so those boundaries hold both for the
+// path as dep-info spelled it and for the physical directory the stub would be
+// created in, which is wherever the nearest surviving ancestor really is.
 func Nominate(buildDir string, exclude ...string) []string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -157,6 +161,12 @@ func Nominate(buildDir string, exclude ...string) []string {
 	}
 	home = filepath.Clean(home)
 	exclude = append([]string{buildDir, cargoHome(home), rustupHome(home)}, exclude...)
+
+	physHome := physical(home)
+	physExclude := make([]string, len(exclude))
+	for i, x := range exclude {
+		physExclude[i] = physical(x)
+	}
 
 	type nominee struct {
 		path          string
@@ -166,9 +176,7 @@ func Nominate(buildDir string, exclude ...string) []string {
 	inProject := map[string]bool{}
 
 	for _, p := range DepInfoPaths(buildDir) {
-		if !inside(p, home) || slices.ContainsFunc(exclude, func(x string) bool {
-			return x != "" && (p == x || inside(p, x))
-		}) {
+		if !inside(p, home) || under(p, exclude) {
 			continue
 		}
 		if _, err := os.Lstat(p); err == nil {
@@ -183,7 +191,11 @@ func Nominate(buildDir string, exclude ...string) []string {
 			missing = append(missing, dir)
 			dir = filepath.Dir(dir)
 		}
-		if len(missing) == 0 || dir == home || withinProject(dir, home, inProject) {
+		if len(missing) == 0 {
+			continue
+		}
+		land := physical(dir)
+		if !inside(land, physHome) || under(land, physExclude) || withinProject(land, physHome, inProject) {
 			continue
 		}
 
@@ -263,6 +275,25 @@ func inside(p, dir string) bool {
 	rel, err := filepath.Rel(dir, p)
 	return err == nil && rel != "." && rel != ".." &&
 		!strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// under reports whether p is one of roots or lies below one.
+func under(p string, roots []string) bool {
+	return slices.ContainsFunc(roots, func(r string) bool {
+		return r != "" && (p == r || inside(p, r))
+	})
+}
+
+// physical resolves the symlinks in p, or returns p itself when it does not
+// exist and so has none to resolve.
+func physical(p string) string {
+	if p == "" {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
 }
 
 func exists(p string) bool {

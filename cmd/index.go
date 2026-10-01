@@ -205,7 +205,7 @@ paths briefly occupied to a handful rather than every worktree ever deleted.`,
 				len(candidates), mater.Plural(len(candidates)), cutoff.Format("2006-01-02"))
 
 			if len(leads) == 0 && len(candidates) == 0 {
-				u.Warning("nothing to probe — these directories belong to repos outside the scanned roots")
+				u.Warning("nothing to probe — no record names a deleted workspace for these directories")
 				return nil
 			}
 
@@ -301,7 +301,7 @@ paths briefly occupied to a handful rather than every worktree ever deleted.`,
 			u.Printf("\nmatched %d of %d after probing %d path%s\n",
 				matched, len(unknown), probed, mater.Plural(probed))
 			if len(remaining) > 0 {
-				u.Note("  %d still unattributed — these belong to repos outside the scanned roots",
+				u.Note("  %d still unattributed — no deleted workspace could be proven for them",
 					len(remaining))
 			}
 			return nil
