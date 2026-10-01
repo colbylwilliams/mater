@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
@@ -24,6 +25,19 @@ func (u *UI) Width() int {
 		return c
 	}
 	return defaultWidth
+}
+
+// DisplayWidth is the number of cells s occupies on screen. Styled text is
+// measured by what it shows, not by the escape codes that colour it.
+func DisplayWidth(s string) int { return lipgloss.Width(s) }
+
+// AlignRight pads s on the left to width display cells, so figures of
+// different lengths, styled or not, share a right edge.
+func AlignRight(s string, width int) string {
+	if gap := width - lipgloss.Width(s); gap > 0 {
+		return strings.Repeat(" ", gap) + s
+	}
+	return s
 }
 
 // Truncate shortens s to max display cells, marking the cut with an ellipsis.

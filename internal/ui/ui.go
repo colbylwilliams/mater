@@ -118,6 +118,10 @@ func (u *UI) Failure(format string, args ...any) {
 	fmt.Fprintf(u.err, "%s %s\n", u.Bad.Render("✗"), fmt.Sprintf(format, args...))
 }
 
+// cellPadding is the space either side of a table cell's content. A ledger
+// beneath a table is indented by the same amount to line up with it.
+const cellPadding = 1
+
 // Table renders rows under a ruled header. Alignment is per column so numbers
 // line up on the right and text stays left.
 func (u *UI) Table(headers []string, rows [][]string, right map[int]bool) {
@@ -135,7 +139,7 @@ func (u *UI) Table(headers []string, rows [][]string, right map[int]bool) {
 		Headers(headers...).
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
-			s := lipgloss.NewStyle().Padding(0, 1)
+			s := lipgloss.NewStyle().Padding(0, cellPadding)
 			if right[col] {
 				s = s.Align(lipgloss.Right)
 			}
@@ -158,6 +162,28 @@ func (u *UI) Fields(pairs [][2]string) {
 	for _, p := range pairs {
 		fmt.Fprintf(u.out, "  %s  %s\n",
 			u.Muted.Render(fmt.Sprintf("%-*s", width, p[0])), p[1])
+	}
+}
+
+// Ledger renders figures right-aligned in a column, each followed by what it
+// measures; a row with no figure continues the one above it.
+//
+// A ledger that closes a table is given the content width of the table's first
+// column, and that column must already be wide enough for every figure. The
+// figures then stand directly beneath it, so a total reads as the sum of the
+// column above. With no table to line up with, pass 0.
+func (u *UI) Ledger(rows [][2]string, beneath int) {
+	indent, width := "", beneath
+	if beneath > 0 {
+		indent = strings.Repeat(" ", cellPadding)
+	}
+	for _, r := range rows {
+		width = max(width, lipgloss.Width(r[0]))
+	}
+	// The same gap that separates the contents of two table cells.
+	gap := strings.Repeat(" ", 2*cellPadding)
+	for _, r := range rows {
+		fmt.Fprintf(u.out, "%s%s%s%s\n", indent, AlignRight(r[0], width), gap, r[1])
 	}
 }
 

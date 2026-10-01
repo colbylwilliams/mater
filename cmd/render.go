@@ -10,20 +10,39 @@ import (
 
 // itemTable renders a set of items as one row each: what it is, how big, how
 // idle, and which work produced it.
-func itemTable(u *ui.UI, items []mater.Item, showState bool) {
+//
+// foot is the ledger to be printed beneath the table, if any. The SIZE column
+// is made wide enough for its figures as well as the sizes, and that width is
+// returned so the ledger can stand its figures in the same column.
+func itemTable(u *ui.UI, items []mater.Item, showState bool, foot [][2]string) int {
 	if len(items) == 0 {
-		return
+		return 0
 	}
 
-	headers := []string{"SIZE", "AGE", "KIND"}
+	sizes := make([]string, len(items))
+	sizeWidth := ui.DisplayWidth("SIZE")
+	for i, it := range items {
+		sizes[i] = u.Muted.Render("—")
+		if it.Sized {
+			sizes[i] = u.Size.Render(mater.FormatSize(it.Size))
+		}
+		sizeWidth = max(sizeWidth, ui.DisplayWidth(sizes[i]))
+	}
+	for _, r := range foot {
+		sizeWidth = max(sizeWidth, ui.DisplayWidth(r[0]))
+	}
+
+	// A column is as wide as its widest cell, so right-aligning the header to
+	// the full width is what reserves room for a figure wider than any size.
+	headers := []string{ui.AlignRight("SIZE", sizeWidth), "AGE", "KIND"}
 	if showState {
 		headers = append(headers, "STATE")
 	}
 	headers = append(headers, "WORK", "LOCATION")
 
-	// Everything except the last two columns is narrow and fixed, so the
-	// remaining width is split between the human label and the path.
-	fixed := 8 + 6 + 13
+	// Everything except the last two columns is narrow, so the remaining width
+	// is split between the human label and the path. Budgets include padding.
+	fixed := sizeWidth + 2 + 6 + 13
 	if showState {
 		fixed += 10
 	}
@@ -37,12 +56,7 @@ func itemTable(u *ui.UI, items []mater.Item, showState bool) {
 	right := map[int]bool{0: true, 1: true}
 
 	rows := make([][]string, 0, len(items))
-	for _, it := range items {
-		size := u.Muted.Render("—")
-		if it.Sized {
-			size = u.Size.Render(mater.FormatSize(it.Size))
-		}
-
+	for i, it := range items {
 		age := u.Muted.Render("—")
 		if a := it.Age(); a >= 0 {
 			age = mater.FormatAge(a)
@@ -53,7 +67,7 @@ func itemTable(u *ui.UI, items []mater.Item, showState bool) {
 			work += " " + u.Badge("in-use", "(in use)")
 		}
 
-		row := []string{size, age, it.Kind.String()}
+		row := []string{sizes[i], age, it.Kind.String()}
 		if showState {
 			row = append(row, u.Badge(it.State.String(), it.State.String()))
 		}
@@ -62,6 +76,7 @@ func itemTable(u *ui.UI, items []mater.Item, showState bool) {
 	}
 
 	u.Table(headers, rows, right)
+	return sizeWidth
 }
 
 // reportSkipped explains what was held back and how to override it.
@@ -77,27 +92,25 @@ func reportSkipped(u *ui.UI, skipped []mater.Item) {
 	u.Blank()
 }
 
-// summarise prints the headline figure for a set of items. Sizes are omitted
-// when nothing was measured, so a --fast listing does not report 0B.
-func summarise(u *ui.UI, items []mater.Item, orphans int, prefix string) {
-	sized := false
+// footer is the ledger that closes a listing: what the items add up to, then
+// the room left on each disk. The total is a dash when nothing was measured, as
+// each unmeasured size is, so a --fast listing does not report 0B.
+func footer(u *ui.UI, items []mater.Item, orphans int, label string, vols []disk.Volume) [][2]string {
+	total := u.Muted.Render("—")
 	for _, it := range items {
 		if it.Sized {
-			sized = true
+			total = u.Size.Render(mater.FormatSize(mater.TotalSize(items)))
 			break
 		}
 	}
 
-	if sized {
-		u.Printf("\n%s %s across %d item%s\n", prefix,
-			u.Size.Render(mater.FormatSize(mater.TotalSize(items))),
-			len(items), mater.Plural(len(items)))
-	} else {
-		u.Printf("\n%s %d item%s\n", prefix, len(items), mater.Plural(len(items)))
-	}
+	rows := [][2]string{{total,
+		fmt.Sprintf("%s across %d item%s", label, len(items), mater.Plural(len(items)))}}
 	if orphans > 0 {
-		u.Note("  includes %d orphan%s whose workspace no longer exists", orphans, mater.Plural(orphans))
+		rows = append(rows, [2]string{"", u.Muted.Render(fmt.Sprintf(
+			"includes %d orphan%s whose workspace no longer exists", orphans, mater.Plural(orphans)))})
 	}
+	return append(rows, freeRows(u, vols)...)
 }
 
 // measure sizes items with a live counter, since walking dozens of build trees
@@ -121,22 +134,25 @@ func volumes(buildRoot string, items []mater.Item) []disk.Volume {
 	return disk.Volumes(paths...)
 }
 
-// freeSpace renders the room left on one volume. The mount point is named only
-// when there are several volumes to tell apart.
-func freeSpace(u *ui.UI, v disk.Volume, named bool) string {
-	s := u.Size.Render(mater.FormatSize(v.Free)) + " of " + mater.FormatSize(v.Size)
+// capacity names the disk a free-space figure belongs to: its size, and its
+// mount point when there are several volumes to tell apart.
+func capacity(v disk.Volume, named bool) string {
+	s := "of " + mater.FormatSize(v.Size)
 	if named {
 		s += " on " + mater.ShortPath(v.Mount)
 	}
 	return s
 }
 
-// reportFree follows a summary with the room left on each disk, so what is
+// freeRows are the ledger rows for the room left on each disk, so what is
 // listed can be weighed against what is still available.
-func reportFree(u *ui.UI, vols []disk.Volume) {
+func freeRows(u *ui.UI, vols []disk.Volume) [][2]string {
+	rows := make([][2]string, 0, len(vols))
 	for _, v := range vols {
-		u.Printf("free space: %s\n", freeSpace(u, v, len(vols) > 1))
+		rows = append(rows, [2]string{u.Size.Render(mater.FormatSize(v.Free)),
+			"free " + capacity(v, len(vols) > 1)})
 	}
+	return rows
 }
 
 // freeFields lays out the same figures as status fields, labelling only the
@@ -148,7 +164,8 @@ func freeFields(u *ui.UI, vols []disk.Volume) [][2]string {
 		if i == 0 {
 			key = "free space"
 		}
-		rows = append(rows, [2]string{key, freeSpace(u, v, len(vols) > 1)})
+		rows = append(rows, [2]string{key,
+			u.Size.Render(mater.FormatSize(v.Free)) + " " + capacity(v, len(vols) > 1)})
 	}
 	return rows
 }
