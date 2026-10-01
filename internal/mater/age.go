@@ -67,8 +67,11 @@ func FormatSize(b int64) string {
 		kb = 1 << 10
 		mb = 1 << 20
 		gb = 1 << 30
+		tb = 1 << 40
 	)
 	switch {
+	case b >= tb:
+		return fmt.Sprintf("%.1fT", float64(b)/tb)
 	case b >= gb:
 		return fmt.Sprintf("%.1fG", float64(b)/gb)
 	case b >= mb:

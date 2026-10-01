@@ -15,11 +15,12 @@ func newStatusCmd() *cobra.Command {
 		Use:     "status",
 		GroupID: "inspect",
 		Short:   "Summarise build output and any delete in progress",
-		Long: `Show what is on disk, how much of it is reclaimable, and whether a background
-delete is still running.
+		Long: `Show what is on disk, how much of it is reclaimable, how much room is left,
+and whether a background delete is still running.
 
 Sizes are omitted by default because measuring means walking every tree. Pass
---size to include them.`,
+--size to include them. Free space is always shown, since the filesystem
+reports it directly.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
@@ -61,6 +62,7 @@ Sizes are omitted by default because measuring means walking every tree. Pass
 				total := disk.Size(cfg.BuildRoot)
 				fields = append(fields, [2]string{"on disk", u.Size.Render(mater.FormatSize(total.Bytes))})
 			}
+			fields = append(fields, freeFields(u, volumes(cfg.BuildRoot, sv.Items))...)
 			u.Fields(fields)
 
 			u.Section("Reclaimable")
