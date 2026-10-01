@@ -58,8 +58,8 @@ mater doctor
 
 | Command | Purpose |
 | --- | --- |
-| `mater status` | Size on disk, orphan count, background deletes, recent activity |
-| `mater list` | One row per directory: size, age, state, and the work that produced it |
+| `mater status` | Size on disk, free space, orphan count, background deletes, recent activity |
+| `mater list` | One row per directory: size, age, state, and the work that produced it, then the total and free space |
 | `mater logs -f` | Follow a background delete |
 
 ### Reclaiming

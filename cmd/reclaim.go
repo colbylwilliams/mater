@@ -97,6 +97,7 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 			prefix = "dry run:"
 		}
 		summarise(u, sel.Items, sel.Orphans, prefix)
+		reportFree(u, volumes(cfg.BuildRoot, sel.Items))
 
 		if o.dryRun {
 			return nil

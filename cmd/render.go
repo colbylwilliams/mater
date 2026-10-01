@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/colbylwilliams/mater/internal/disk"
 	"github.com/colbylwilliams/mater/internal/mater"
 	"github.com/colbylwilliams/mater/internal/ui"
 )
@@ -106,4 +107,48 @@ func measure(u *ui.UI, items []mater.Item, label string) []mater.Item {
 	out := mater.Measure(items, p.Update)
 	p.Done()
 	return out
+}
+
+// volumes finds the disks holding the build root and items. The build root is
+// always included, and first, because the next build writes there whether or
+// not anything sits there yet.
+func volumes(buildRoot string, items []mater.Item) []disk.Volume {
+	paths := make([]string, 0, len(items)+1)
+	paths = append(paths, buildRoot)
+	for _, it := range items {
+		paths = append(paths, it.Path)
+	}
+	return disk.Volumes(paths...)
+}
+
+// freeSpace renders the room left on one volume. The mount point is named only
+// when there are several volumes to tell apart.
+func freeSpace(u *ui.UI, v disk.Volume, named bool) string {
+	s := u.Size.Render(mater.FormatSize(v.Free)) + " of " + mater.FormatSize(v.Size)
+	if named {
+		s += " on " + mater.ShortPath(v.Mount)
+	}
+	return s
+}
+
+// reportFree follows a summary with the room left on each disk, so what is
+// listed can be weighed against what is still available.
+func reportFree(u *ui.UI, vols []disk.Volume) {
+	for _, v := range vols {
+		u.Printf("free space: %s\n", freeSpace(u, v, len(vols) > 1))
+	}
+}
+
+// freeFields lays out the same figures as status fields, labelling only the
+// first row so several volumes read as one entry.
+func freeFields(u *ui.UI, vols []disk.Volume) [][2]string {
+	rows := make([][2]string, 0, len(vols))
+	for i, v := range vols {
+		key := ""
+		if i == 0 {
+			key = "free space"
+		}
+		rows = append(rows, [2]string{key, freeSpace(u, v, len(vols) > 1)})
+	}
+	return rows
 }
