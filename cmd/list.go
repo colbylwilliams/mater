@@ -28,8 +28,8 @@ so each row is labelled with the work that produced it: the Copilot session
 that created the worktree, or the checkout's own name.
 
 Sizes are measured by walking each tree, which takes a moment. Pass --fast to
-skip it. The free space left on each disk holding the output follows the total
-either way: the filesystem reports it directly, so it needs no walk.`,
+skip it. The listing ends with the free space left on disk either way: the
+filesystem reports it directly, so it needs no walk.`,
 		Example: `  # Everything, largest first
   mater list
 
@@ -59,6 +59,7 @@ either way: the filesystem reports it directly, so it needs no walk.`,
 			}
 			if len(items) == 0 {
 				u.Note("no build output found under %s", mater.ShortPath(cfg.BuildRoot))
+				reportFree(u, volumes(cfg.BuildRoot, nil))
 				return nil
 			}
 
