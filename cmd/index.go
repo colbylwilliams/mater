@@ -77,6 +77,9 @@ func newIndexShowCmd() *cobra.Command {
 
 			if len(rows) == 0 {
 				u.Note("no build directories under %s", mater.ShortPath(cfg.BuildRoot))
+				if saveErr != nil {
+					u.Warning("%s could not be updated: %v", mater.ShortPath(cfg.IndexFile()), saveErr)
+				}
 				return nil
 			}
 

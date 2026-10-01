@@ -123,15 +123,17 @@ func TestSaveWithNothingToRecordWritesNothing(t *testing.T) {
 	}
 }
 
-// Every command records what it learns, so runs overlap. One that learned
-// nothing has no claim on the file, so it must leave alone a mapping another
-// run recorded after it loaded.
-func TestUnchangedSaveKeepsAnotherRunsMapping(t *testing.T) {
+// Every command records what it learns, so runs overlap: a prune can sit at its
+// prompt while another run records a workspace built meanwhile. Each save has
+// to keep what the others recorded after it loaded, whether or not it learned
+// anything itself.
+func TestSaveKeepsWhatOverlappingRunsRecorded(t *testing.T) {
 	dir := t.TempDir()
 	first := filepath.Join(dir, "ab", "first")
 	second := filepath.Join(dir, "cd", "second")
+	third := filepath.Join(dir, "ef", "third")
 	ws := filepath.Join(dir, "workspace")
-	mkdirs(t, first, second, ws)
+	mkdirs(t, first, second, third, ws)
 
 	path := filepath.Join(dir, ".index")
 	seed := New(path)
@@ -140,29 +142,61 @@ func TestUnchangedSaveKeepsAnotherRunsMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	idle, err := Load(path)
+	runs := make([]*Index, 3)
+	for i := range runs {
+		ix, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs[i] = ix
+	}
+	runs[0].Set(second, ws)
+	runs[1].Set(third, ws)
+	for i, ix := range runs {
+		if err := ix.Save(); err != nil {
+			t.Fatalf("run %d: Save: %v", i, err)
+		}
+	}
+
+	reloaded, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	busy, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
+	for _, d := range []string{first, second, third} {
+		if _, ok := reloaded.Workspace(d); !ok {
+			t.Errorf("%s was lost to an overlapping save", filepath.Base(d))
+		}
 	}
-	busy.Set(second, ws)
-	if err := busy.Save(); err != nil {
+}
+
+// A mapping dropped on purpose stays dropped, though the file it is merged
+// into still holds it.
+func TestForgetSurvivesTheMerge(t *testing.T) {
+	dir := t.TempDir()
+	build := filepath.Join(dir, "ab", "cdef")
+	mkdirs(t, build)
+
+	path := filepath.Join(dir, ".index")
+	seed := New(path)
+	seed.Set(build, dir)
+	if err := seed.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	idle.Set(first, ws)
-	if err := idle.Save(); err != nil {
+	ix, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix.Forget(build)
+	if err := ix.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	reloaded, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := reloaded.Workspace(second); !ok {
-		t.Error("a save with nothing new replaced a mapping another run had recorded")
+	if _, ok := reloaded.Workspace(build); ok {
+		t.Error("a forgotten mapping came back from the file")
 	}
 }
 

@@ -23,30 +23,38 @@ type Index struct {
 	path  string
 	byDir map[string]string
 
-	// stored is the file's content as last read or written, which is what
-	// lets Save recognise that it has nothing new to record.
-	stored []byte
+	// forgotten holds mappings dropped on purpose, so that merging on save
+	// does not bring them back from the file.
+	forgotten map[string]struct{}
 }
 
 // New returns an empty index bound to path.
 func New(path string) *Index {
-	return &Index{path: path, byDir: map[string]string{}}
+	return &Index{path: path, byDir: map[string]string{}, forgotten: map[string]struct{}{}}
 }
 
 // Load reads the index file. A missing file yields an empty index, which is the
 // correct state on a first run.
 func Load(path string) (*Index, error) {
-	ix := New(path)
-
-	data, err := os.ReadFile(path)
+	data, err := read(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return ix, nil
-		}
+		return nil, err
+	}
+	ix := New(path)
+	return ix, parse(data, ix.byDir)
+}
+
+// read returns the index file's content, which is nothing before a first save.
+func read(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read index %s: %w", path, err)
 	}
-	ix.stored = data
+	return data, nil
+}
 
+// parse adds every well-formed line of an index file to byDir.
+func parse(data []byte, byDir map[string]string) error {
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 8<<10), 1<<20)
 	for sc.Scan() {
@@ -54,9 +62,9 @@ func Load(path string) (*Index, error) {
 		if !ok || dir == "" || ws == "" {
 			continue
 		}
-		ix.byDir[dir] = ws
+		byDir[dir] = ws
 	}
-	return ix, sc.Err()
+	return sc.Err()
 }
 
 // Workspace returns the workspace recorded for a build directory.
@@ -66,10 +74,16 @@ func (ix *Index) Workspace(buildDir string) (string, bool) {
 }
 
 // Set records a mapping.
-func (ix *Index) Set(buildDir, workspace string) { ix.byDir[buildDir] = workspace }
+func (ix *Index) Set(buildDir, workspace string) {
+	ix.byDir[buildDir] = workspace
+	delete(ix.forgotten, buildDir)
+}
 
 // Forget drops a mapping.
-func (ix *Index) Forget(buildDir string) { delete(ix.byDir, buildDir) }
+func (ix *Index) Forget(buildDir string) {
+	delete(ix.byDir, buildDir)
+	ix.forgotten[buildDir] = struct{}{}
+}
 
 // Len is the number of recorded mappings.
 func (ix *Index) Len() int { return len(ix.byDir) }
@@ -101,27 +115,48 @@ func (ix *Index) Compact() {
 	}
 }
 
-// Save writes the index atomically, skipping build directories that no longer
-// exist. The existence check is repeated here because a run that staged its
-// victims has already moved them by the time it persists.
+// Save merges the index into whatever the file holds now and writes the result
+// atomically, keeping only build directories that still exist. The existence
+// check is repeated here because a run that staged its victims has already
+// moved them by the time it persists.
 //
-// Every command saves what its survey learned, so most saves have nothing new
-// to say. One that would write back the content it started from is skipped: it
-// neither creates the build root on a machine that has never built, nor
-// replaces a mapping another run recorded in the meantime.
+// Every command records what its survey learned, and runs overlap: a prune can
+// sit at its prompt while another run records a workspace built meanwhile.
+// Replacing the file wholesale would erase that mapping, so the file's
+// mappings are kept and this run's own answers are laid over them. A save
+// that would leave the file as it is writes nothing, so a read never creates
+// the build root on a machine that has never built.
 func (ix *Index) Save() error {
 	if ix.path == "" {
 		return nil
 	}
 
+	current, err := read(ix.path)
+	if err != nil {
+		return err
+	}
+	merged := map[string]string{}
+	if err := parse(current, merged); err != nil {
+		return fmt.Errorf("read index %s: %w", ix.path, err)
+	}
+	for d := range ix.forgotten {
+		delete(merged, d)
+	}
+	for d, w := range ix.byDir {
+		merged[d] = w
+	}
+	for d := range merged {
+		if _, err := os.Stat(d); err != nil {
+			delete(merged, d)
+		}
+	}
+	ix.byDir = merged
+
 	var buf bytes.Buffer
 	for _, e := range ix.Entries() {
-		if _, err := os.Stat(e.BuildDir); err != nil {
-			continue
-		}
 		fmt.Fprintf(&buf, "%s\t%s\n", e.BuildDir, e.Workspace)
 	}
-	if bytes.Equal(buf.Bytes(), ix.stored) {
+	if bytes.Equal(buf.Bytes(), current) {
 		return nil
 	}
 
@@ -144,6 +179,5 @@ func (ix *Index) Save() error {
 	if err := os.Rename(tmp.Name(), ix.path); err != nil {
 		return fmt.Errorf("replace index: %w", err)
 	}
-	ix.stored = buf.Bytes()
 	return nil
 }
