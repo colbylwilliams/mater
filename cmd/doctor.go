@@ -61,8 +61,8 @@ run is printed for you to apply.`,
 				checkStaging(cfg.BuildRoot),
 			}
 
-			// Doctor records what it learned like every command, but a failure
-			// to is the index check's verdict rather than a warning beside it.
+			// Doctor records what it learned like every command, but reports a
+			// failure to write as the index check's verdict, not as a warning.
 			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{})
 			if err == nil {
 				checks = append(checks, checkIndex(sv, sv.Index.Save()))

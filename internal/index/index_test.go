@@ -169,6 +169,53 @@ func TestSaveKeepsWhatOverlappingRunsRecorded(t *testing.T) {
 	}
 }
 
+// What a run loaded and never touched is no newer than the file, so a save
+// must not put it back over a different answer another run recorded since.
+// What the run did set is its own answer, and that one stands.
+func TestSaveNeverRevertsAnotherRunsAnswer(t *testing.T) {
+	dir := t.TempDir()
+	mine := filepath.Join(dir, "ab", "mine")
+	theirs := filepath.Join(dir, "cd", "theirs")
+	mkdirs(t, mine, theirs)
+
+	path := filepath.Join(dir, ".index")
+	seed := New(path)
+	seed.Set(mine, "/old/mine")
+	seed.Set(theirs, "/old/theirs")
+	if err := seed.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	slow, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fast, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fast.Set(mine, "/fast/mine")
+	fast.Set(theirs, "/fast/theirs")
+	if err := fast.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	slow.Set(mine, "/slow/mine")
+	if err := slow.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := reloaded.Workspace(theirs); got != "/fast/theirs" {
+		t.Errorf("untouched mapping = %q, want the newer %q", got, "/fast/theirs")
+	}
+	if got, _ := reloaded.Workspace(mine); got != "/slow/mine" {
+		t.Errorf("mapping this run set = %q, want its own %q", got, "/slow/mine")
+	}
+}
+
 // A mapping dropped on purpose stays dropped, though the file it is merged
 // into still holds it.
 func TestForgetSurvivesTheMerge(t *testing.T) {

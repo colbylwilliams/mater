@@ -93,6 +93,16 @@ the one to keep.`,
 			restored, restoreErr := reap.Restore(ready, log)
 			log.Printf("restore: %d item%s put back", restored, mater.Plural(restored))
 
+			// A delete drops what it staged from the index, since that output
+			// has left the build root by the time the delete saves. Asking Cargo
+			// again gives back the owner of anything restored whose workspace
+			// still exists, before a later failure can return without doing so.
+			if restored > 0 {
+				if _, err := scan(cmd, mater.SurveyOptions{}); err != nil {
+					u.Warning("ownership not re-recorded: %v", err)
+				}
+			}
+
 			for _, dir := range staging {
 				if err := reap.Cleanup(dir); err != nil {
 					return err
@@ -106,14 +116,6 @@ the one to keep.`,
 			u.Success("restored %s across %d item%s",
 				u.Size.Render(mater.FormatSize(totalStaged(ready[:restored]))),
 				restored, mater.Plural(restored))
-
-			// A delete drops what it staged from the index, since that output
-			// has left the build root by the time the delete saves. Asking Cargo
-			// again gives back the owner of anything restored whose workspace
-			// still exists. The restore has already succeeded either way.
-			if _, err := scan(cmd, mater.SurveyOptions{}); err != nil {
-				u.Warning("ownership not re-recorded: %v", err)
-			}
 			return nil
 		},
 	}

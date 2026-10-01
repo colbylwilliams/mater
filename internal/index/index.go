@@ -23,14 +23,15 @@ type Index struct {
 	path  string
 	byDir map[string]string
 
-	// forgotten holds mappings dropped on purpose, so that merging on save
-	// does not bring them back from the file.
-	forgotten map[string]struct{}
+	// changed holds every build directory set or forgotten since the index was
+	// loaded or last saved. Only these are laid over the file on save: for the
+	// rest, the file is at least as current as what was loaded.
+	changed map[string]struct{}
 }
 
 // New returns an empty index bound to path.
 func New(path string) *Index {
-	return &Index{path: path, byDir: map[string]string{}, forgotten: map[string]struct{}{}}
+	return &Index{path: path, byDir: map[string]string{}, changed: map[string]struct{}{}}
 }
 
 // Load reads the index file. A missing file yields an empty index, which is the
@@ -76,13 +77,13 @@ func (ix *Index) Workspace(buildDir string) (string, bool) {
 // Set records a mapping.
 func (ix *Index) Set(buildDir, workspace string) {
 	ix.byDir[buildDir] = workspace
-	delete(ix.forgotten, buildDir)
+	ix.changed[buildDir] = struct{}{}
 }
 
 // Forget drops a mapping.
 func (ix *Index) Forget(buildDir string) {
 	delete(ix.byDir, buildDir)
-	ix.forgotten[buildDir] = struct{}{}
+	ix.changed[buildDir] = struct{}{}
 }
 
 // Len is the number of recorded mappings.
@@ -122,10 +123,10 @@ func (ix *Index) Compact() {
 //
 // Every command records what its survey learned, and runs overlap: a prune can
 // sit at its prompt while another run records a workspace built meanwhile.
-// Replacing the file wholesale would erase that mapping, so the file's
-// mappings are kept and this run's own answers are laid over them. A save
-// that would leave the file as it is writes nothing, so a read never creates
-// the build root on a machine that has never built.
+// Replacing the file wholesale would erase that mapping, so only what this run
+// set or forgot is laid over the file as it stands now. A save that would
+// leave the file as it is writes nothing, so a read never creates the build
+// root on a machine that has never built.
 func (ix *Index) Save() error {
 	if ix.path == "" {
 		return nil
@@ -139,11 +140,12 @@ func (ix *Index) Save() error {
 	if err := parse(current, merged); err != nil {
 		return fmt.Errorf("read index %s: %w", ix.path, err)
 	}
-	for d := range ix.forgotten {
-		delete(merged, d)
-	}
-	for d, w := range ix.byDir {
-		merged[d] = w
+	for d := range ix.changed {
+		if w, ok := ix.byDir[d]; ok {
+			merged[d] = w
+		} else {
+			delete(merged, d)
+		}
 	}
 	for d := range merged {
 		if _, err := os.Stat(d); err != nil {
@@ -157,6 +159,7 @@ func (ix *Index) Save() error {
 		fmt.Fprintf(&buf, "%s\t%s\n", e.BuildDir, e.Workspace)
 	}
 	if bytes.Equal(buf.Bytes(), current) {
+		clear(ix.changed)
 		return nil
 	}
 
@@ -179,5 +182,6 @@ func (ix *Index) Save() error {
 	if err := os.Rename(tmp.Name(), ix.path); err != nil {
 		return fmt.Errorf("replace index: %w", err)
 	}
+	clear(ix.changed)
 	return nil
 }
