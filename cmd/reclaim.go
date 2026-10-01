@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/colbylwilliams/mater/internal/inuse"
 	"github.com/colbylwilliams/mater/internal/mater"
 	"github.com/colbylwilliams/mater/internal/reap"
+	"github.com/colbylwilliams/mater/internal/ui"
 )
 
 // reclaimOpts are the flags shared by every command that deletes something.
@@ -21,6 +23,7 @@ type reclaimOpts struct {
 	yes            bool
 	includeRunning bool
 	force          bool
+	watch          bool
 }
 
 // addReclaimFlags registers the flags common to prune and nuke.
@@ -30,10 +33,11 @@ func addReclaimFlags(cmd *cobra.Command, o *reclaimOpts) {
 	f.BoolVarP(&o.yes, "yes", "y", false, "skip the confirmation prompt")
 	f.BoolVar(&o.includeRunning, "include-running", false, "include output a live process is using")
 	f.BoolVar(&o.force, "force", false, "proceed even while a build is running")
+	f.BoolVarP(&o.watch, "watch", "w", false, "show the background delete's progress and return when it finishes")
 }
 
 // runReclaim is the whole destructive path: survey, select, price, confirm,
-// stage, and hand off to a detached worker.
+// stage, and hand off to a detached worker, optionally staying to watch it.
 func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	u, cfg := shared.ui, shared.cfg
 
@@ -173,7 +177,17 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	if err := sv.Index.Save(); err != nil {
 		return err
 	}
-	if err := reap.Spawn(staging.Dir, globalFlags()...); err != nil {
+
+	// A watch reads the log from where it ends before the worker exists, so
+	// the worker's first line cannot land unseen.
+	var progress *logReader
+	if o.watch {
+		progress = openProgress(u, cfg.LogFile)
+	}
+	defer progress.Close()
+
+	worker, err := reap.Spawn(staging.Dir, globalFlags()...)
+	if err != nil {
 		return err
 	}
 
@@ -183,12 +197,77 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	if adopted > 0 {
 		u.Note("  adopted %d item%s left staged by a previous run", adopted, mater.Plural(adopted))
 	}
+
+	if !o.watch {
+		u.Fields([][2]string{
+			{"log", mater.ShortPath(cfg.LogFile)},
+			{"watch", "mater logs --follow"},
+			{"undo", "mater restore"},
+		})
+		return worker.Release()
+	}
+
 	u.Fields([][2]string{
 		{"log", mater.ShortPath(cfg.LogFile)},
-		{"watch", "mater logs --follow"},
 		{"undo", "mater restore"},
+		{"detach", "ctrl+c — the delete carries on"},
 	})
-	return nil
+	u.Blank()
+	return watch(ctx(cmd), u, progress, worker.Wait)
+}
+
+// openProgress opens the log a watch reads from, positioned where it ends now.
+// It warns rather than fails: by the time a watch begins the items are staged
+// and need their worker, so a log that cannot be read costs only the progress
+// lines.
+func openProgress(u *ui.UI, path string) *logReader {
+	if path == "" {
+		u.Warning("no log_file is configured, so the watch has no progress to show")
+		return nil
+	}
+	r, err := openLogEnd(path)
+	if err != nil {
+		u.Warning("cannot read the log, so the watch has no progress to show: %v", err)
+		return nil
+	}
+	return r
+}
+
+// watch prints a worker's progress until wait returns, then reports how the
+// worker ended. An interrupt ends only the watch: the worker sits outside the
+// terminal's process group, so the delete carries on without it.
+func watch(c context.Context, u *ui.UI, progress *logReader, wait func() error) error {
+	stop, cancel := context.WithCancel(c)
+	defer cancel()
+
+	exited := make(chan error, 1)
+	go func() {
+		exited <- wait()
+		cancel()
+	}()
+
+	if progress != nil {
+		if err := tail(progress, stop.Done(), u.Println); err != nil {
+			u.Warning("cannot read the log any further, so no more progress will be shown: %v", err)
+		}
+	}
+	<-stop.Done()
+
+	select {
+	case err := <-exited:
+		if err != nil {
+			// Rendered as a single sentence: the error presenter capitalises
+			// the first word and adds the full stop.
+			return fmt.Errorf("%w; whatever it had not reached stays staged for the next "+
+				"prune or nuke to finish, and 'mater logs' shows what happened", err)
+		}
+		return nil
+	default:
+		// An interrupt from the keyboard leaves ^C echoed mid-line.
+		u.Blank()
+		u.Note("stopped watching; the delete carries on in the background — 'mater logs -f' follows it")
+		return nil
+	}
 }
 
 // parseStale validates a value supplied for --stale. A blank value asked to
@@ -281,12 +360,19 @@ unattributed directories are claimed too. Given bare it uses the configured
 stale_age; given a value, that value instead.
 
 --skip-orphans narrows the other way, leaving abandoned output in place so that
-a run takes only what --stale matched.`,
+a run takes only what --stale matched.
+
+The delete itself runs in the background, so prune returns as soon as the
+output is out of your tree. --watch stays to print the delete's progress and
+returns when it finishes; ctrl+c then stops the watching, never the delete.`,
 		Example: `  # Remove output from deleted worktrees
   mater prune
 
   # Preview first
   mater prune --dry-run
+
+  # Stay until the delete has finished
+  mater prune --watch
 
   # Also take anything untouched for a week
   mater prune --stale 1w
@@ -333,12 +419,19 @@ for 'mater prune' first, which takes only what is abandoned or idle.
 
 This refuses while any compiler is running, because output taken out from under
 an in-flight build corrupts it. Output that a live process is executing from or
-sitting inside is held back and reported.`,
+sitting inside is held back and reported.
+
+The delete itself runs in the background, so nuke returns as soon as the
+output is out of your tree. --watch stays to print the delete's progress and
+returns when it finishes; ctrl+c then stops the watching, never the delete.`,
 		Example: `  # Preview a full nuke
   mater nuke --dry-run
 
   # Free everything without confirming
-  mater nuke --yes`,
+  mater nuke --yes
+
+  # Free everything and stay until the delete has finished
+  mater nuke --yes --watch`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runReclaim(cmd, o)

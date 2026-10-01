@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -39,7 +40,13 @@ Deletes run detached, so this is where their per-item progress ends up.`,
 			if !follow {
 				return nil
 			}
-			return tail(ctx(cmd).Done(), cfg.LogFile, u.Println)
+
+			r, err := openLogEnd(cfg.LogFile)
+			if err != nil {
+				return err
+			}
+			defer r.Close()
+			return tail(r, ctx(cmd).Done(), u.Println)
 		},
 	}
 
@@ -48,37 +55,75 @@ Deletes run detached, so this is where their per-item progress ends up.`,
 	return cmd
 }
 
-// tail streams new lines until the context is cancelled. Polling is used rather
-// than a filesystem watcher because the writer is a detached process appending
-// a handful of lines a minute, and a watcher would be more machinery than the
-// job needs.
-func tail(done <-chan struct{}, path string, emit func(...any)) error {
+// pollInterval is how often a followed log is checked for new lines. Polling is
+// used rather than a filesystem watcher because the writer is a detached
+// process appending a handful of lines a minute, and a watcher would be more
+// machinery than the job needs.
+const pollInterval = 250 * time.Millisecond
+
+// logReader yields the lines appended to a log after it was opened.
+type logReader struct {
+	f       *os.File
+	r       *bufio.Reader
+	partial string
+}
+
+// openLogEnd opens the log positioned at its end, so only lines written from
+// now on are read.
+func openLogEnd(path string) (*logReader, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer f.Close()
-
 	if _, err := f.Seek(0, io.SeekEnd); err != nil {
-		return err
+		f.Close()
+		return nil, err
 	}
-	r := bufio.NewReader(f)
+	return &logReader{f: f, r: bufio.NewReader(f)}, nil
+}
 
+// emit passes on every complete line read so far. A line caught before its
+// newline lands is held back until the rest arrives, rather than split in two.
+func (l *logReader) emit(fn func(...any)) error {
 	for {
-		select {
-		case <-done:
-			return nil
-		default:
-		}
-
-		line, err := r.ReadString('\n')
-		if len(line) > 0 {
-			emit(line[:len(line)-1])
+		chunk, err := l.r.ReadString('\n')
+		if err == nil {
+			fn(l.partial + strings.TrimSuffix(chunk, "\n"))
+			l.partial = ""
 			continue
 		}
-		if err != nil && err != io.EOF {
+		l.partial += chunk
+		if err == io.EOF {
+			return nil
+		}
+		return err
+	}
+}
+
+// Close releases the file. A nil reader is a no-op, so callers that may not
+// have a log can defer it unconditionally.
+func (l *logReader) Close() error {
+	if l == nil {
+		return nil
+	}
+	return l.f.Close()
+}
+
+// tail streams new lines until stop is closed, then reads to the end once more.
+// The final pass matters when stop means a writer has exited: everything it
+// wrote is in the file by then, so its closing lines are never cut off.
+func tail(r *logReader, stop <-chan struct{}, emit func(...any)) error {
+	t := time.NewTicker(pollInterval)
+	defer t.Stop()
+
+	for {
+		if err := r.emit(emit); err != nil {
 			return err
 		}
-		time.Sleep(250 * time.Millisecond)
+		select {
+		case <-stop:
+			return r.emit(emit)
+		case <-t.C:
+		}
 	}
 }

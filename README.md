@@ -69,12 +69,15 @@ mater doctor
 | `mater prune` | Remove output whose workspace has been deleted |
 | `mater prune --stale 1w` | Also remove output idle past a threshold |
 | `mater prune -s 8h -o` | Remove only idle output, leaving deleted worktrees in place |
+| `mater prune --watch` | Stay until the background delete has finished |
 | `mater nuke` | Remove everything |
 | `mater restore` | Stop a delete in progress and put back what it has not reached |
 
-`prune` and `nuke` accept `--dry-run`, `--yes`, `--include-running`, and `--force`.
+`prune` and `nuke` accept `--dry-run`, `--yes`, `--include-running`, `--force`, and `--watch`.
 
 `--stale`/`-s` takes an age — `45m`, `6h`, `2d`, `1w`, or a bare number of days — and falls back to `stale_age` from config when given on its own. `--skip-orphans`/`-o` narrows a stale run to output that has not already been abandoned.
+
+`--watch`/`-w` prints the background delete's progress as it goes and returns once it finishes, failing if the delete does not end cleanly. Ctrl+C stops the watching, never the delete.
 
 ### Setup
 
@@ -91,7 +94,7 @@ mater doctor
 
 **Live output is held back.** Age is not proof of idleness, since an app can run for days from a `target/debug` it built long ago. `mater` checks every process's arguments and working directory before moving anything. `nuke` also refuses while a compiler is running.
 
-**Deletes do not hold the terminal.** Each directory is renamed into staging on the same volume, which is O(1), and a detached worker unlinks it afterwards. Staging lives inside the build root, so the unlink churn is not scanned either. A killed worker is adopted on the next run.
+**Deletes do not hold the terminal.** Each directory is renamed into staging on the same volume, which is O(1), and a detached worker unlinks it afterwards. Staging lives inside the build root, so the unlink churn is not scanned either. A killed worker is adopted on the next run. `--watch` keeps the terminal only to show progress: the worker stays detached, so interrupting the watch or closing the terminal leaves the delete running.
 
 **Undo works mid-delete.** Staged items stay whole until the worker reaches them. `mater restore` stops it between items and moves back the rest, leaving alone anything whose old path has since been rebuilt.
 
