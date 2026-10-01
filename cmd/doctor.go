@@ -43,8 +43,8 @@ directory instead of a target/ inside every checkout. That single path is what
 makes a real-time scanning exclusion possible: worktrees come and go, but the
 build root does not.
 
-Nothing here modifies your machine. Where a fix is needed, the command to run
-is printed for you to apply.`,
+Nothing here changes your configuration. Where a fix is needed, the command to
+run is printed for you to apply.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
@@ -59,7 +59,7 @@ is printed for you to apply.`,
 				checkStaging(cfg.BuildRoot),
 			}
 
-			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{})
+			sv, err := scan(cmd, mater.SurveyOptions{})
 			if err == nil {
 				checks = append(checks, checkIndex(sv))
 			}

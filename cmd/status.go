@@ -26,7 +26,7 @@ reports it directly; a disk with under 100G free is flagged in amber, and under
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
 
-			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{})
+			sv, err := scan(cmd, mater.SurveyOptions{})
 			if err != nil {
 				return err
 			}

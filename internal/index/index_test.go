@@ -104,6 +104,68 @@ func TestSaveIsAtomic(t *testing.T) {
 	}
 }
 
+// Every survey saves, including the first one on a machine that has never
+// built anything. With nothing to record, that save must not conjure up the
+// build root just to hold an empty file.
+func TestSaveWithNothingToRecordWritesNothing(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "build-root")
+
+	ix, err := Load(filepath.Join(root, ".index"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix.Set(filepath.Join(root, "ab", "never-built"), t.TempDir())
+	if err := ix.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Errorf("Save created %s with nothing to record (stat: %v)", root, err)
+	}
+}
+
+// Every command records what it learns, so runs overlap. One that learned
+// nothing has no claim on the file, so it must leave alone a mapping another
+// run recorded after it loaded.
+func TestUnchangedSaveKeepsAnotherRunsMapping(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "ab", "first")
+	second := filepath.Join(dir, "cd", "second")
+	ws := filepath.Join(dir, "workspace")
+	mkdirs(t, first, second, ws)
+
+	path := filepath.Join(dir, ".index")
+	seed := New(path)
+	seed.Set(first, ws)
+	if err := seed.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	idle, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busy, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	busy.Set(second, ws)
+	if err := busy.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	idle.Set(first, ws)
+	if err := idle.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.Workspace(second); !ok {
+		t.Error("a save with nothing new replaced a mapping another run had recorded")
+	}
+}
+
 func TestMalformedLinesAreIgnored(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".index")
