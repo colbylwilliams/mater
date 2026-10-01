@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,9 +61,11 @@ run is printed for you to apply.`,
 				checkStaging(cfg.BuildRoot),
 			}
 
-			sv, err := scan(cmd, mater.SurveyOptions{})
+			// Doctor records what it learned like every command, but a failure
+			// to is the index check's verdict rather than a warning beside it.
+			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{})
 			if err == nil {
-				checks = append(checks, checkIndex(sv))
+				checks = append(checks, checkIndex(sv, sv.Index.Save()))
 			}
 
 			u.Section("Checks")
@@ -301,7 +305,20 @@ func checkStaging(buildRoot string) check {
 	}
 }
 
-func checkIndex(sv *mater.Survey) check {
+func checkIndex(sv *mater.Survey, saveErr error) check {
+	if saveErr != nil {
+		cause := saveErr
+		var pe *fs.PathError
+		if errors.As(saveErr, &pe) {
+			cause = pe.Err
+		}
+		return check{
+			name:   "index",
+			result: warn,
+			detail: fmt.Sprintf("not writable (%v) — nothing new is recorded", cause),
+		}
+	}
+
 	unknown := 0
 	for _, it := range sv.Items {
 		if it.Kind == mater.KindBuildDir && it.Workspace == "" {

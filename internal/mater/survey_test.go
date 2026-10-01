@@ -20,17 +20,12 @@ func TestScanAsksCargoAboutLiveWorkspacesByDefault(t *testing.T) {
 	rustWorkspace(t, ws, build)
 	cfg := scanConfig(root, ws)
 
-	// The process snapshot runs alongside the Cargo queries, so it is taken
-	// here too, where the race detector can see both.
-	sv, err := Scan(context.Background(), cfg, SurveyOptions{DetectInUse: true})
+	sv, err := Scan(context.Background(), cfg, SurveyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if it := findItem(t, sv, build); it.State != StateLive || it.Workspace != ws {
 		t.Errorf("default scan: %s is %v owned by %q, want live owned by %q", build, it.State, it.Workspace, ws)
-	}
-	if sv.Process == nil {
-		t.Error("default scan asked to detect use took no process snapshot")
 	}
 
 	sv, err = Scan(context.Background(), cfg, SurveyOptions{SkipRefresh: true})

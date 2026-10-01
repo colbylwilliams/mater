@@ -40,10 +40,13 @@ func newIndexShowCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
 
-			sv, err := scan(cmd, mater.SurveyOptions{})
+			// Recorded here rather than through scan, so that the footer below
+			// claims only what reached the file.
+			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{})
 			if err != nil {
 				return err
 			}
+			saveErr := sv.Index.Save()
 
 			width := u.Width()/2 - 6
 			if width < 24 {
@@ -78,8 +81,14 @@ func newIndexShowCmd() *cobra.Command {
 			}
 
 			u.Table([]string{"BUILD DIR", "STATE", "WORKSPACE"}, rows, nil)
-			u.Printf("\n%d mapping%s recorded in %s\n",
-				sv.Index.Len(), mater.Plural(sv.Index.Len()), mater.ShortPath(cfg.IndexFile()))
+			if saveErr != nil {
+				u.Blank()
+				u.Warning("%d mapping%s known, but %s could not be updated: %v",
+					sv.Index.Len(), mater.Plural(sv.Index.Len()), mater.ShortPath(cfg.IndexFile()), saveErr)
+			} else {
+				u.Printf("\n%d mapping%s recorded in %s\n",
+					sv.Index.Len(), mater.Plural(sv.Index.Len()), mater.ShortPath(cfg.IndexFile()))
+			}
 			if unattributed > 0 {
 				u.Note("  %d unattributed — try 'mater index bootstrap'", unattributed)
 			}
