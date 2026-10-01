@@ -1,10 +1,11 @@
 // Package index records which workspace produced each build directory.
 //
 // Nothing inside a build directory names the workspace it belongs to, so the
-// link has to be observed while the workspace still exists and written down.
-// That record is what lets a build directory later be called an orphan: only a
+// link is observed while the workspace still exists and written down, or
+// recovered afterwards by proving which deleted path Cargo maps to it. That
+// record is what lets a build directory later be called an orphan: only a
 // directory the index attributes to a path that no longer exists qualifies, so
-// output from an unscanned repo is never collectable.
+// output that cannot be attributed is never collectable.
 package index
 
 import (

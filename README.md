@@ -83,11 +83,11 @@ mater doctor
 | `mater doctor` | Check Cargo config, build root, index health, and probe availability |
 | `mater config init` | Write a commented configuration file |
 | `mater index show` | List recorded build directory to workspace mappings |
-| `mater index bootstrap` | Recover ownership of directories that predate the index |
+| `mater index bootstrap` | Recover ownership of directories the index never saw |
 
 ## How it decides what is safe
 
-**Orphans are proven, not guessed.** Nothing inside a build directory names the workspace that produced it, so `mater` records the link from Cargo as each workspace is seen. A directory is an orphan only when the index holds a path that no longer exists. Output from a repo `mater` has never seen stays unattributed, and a bare `prune` leaves it alone — `--stale` still reaches it, since idleness needs no attribution.
+**Orphans are proven, not guessed.** Nothing inside a build directory names the workspace that produced it, so `mater` records the link from Cargo as each workspace is seen. A directory is an orphan only when the index holds a path that no longer exists. A link missed while the workspace existed can be recovered by `mater index bootstrap`: Copilot session state, git's worktree registry, and the missing paths named in the directory's own dep-info suggest where the workspace lived, and the link is recorded only when Cargo, asked about that deleted path as a workspace of its own, answers with the same directory. Output whose workspace cannot be proven this way stays unattributed, and a bare `prune` leaves it alone — `--stale` still reaches it, since idleness needs no attribution.
 
 **Live output is held back.** Age is not proof of idleness, since an app can run for days from a `target/debug` it built long ago. `mater` checks every process's arguments and working directory before moving anything. `nuke` also refuses while a compiler is running.
 

@@ -91,20 +91,48 @@ func Probe(ctx context.Context, dir string) (string, bool) {
 		return "", false
 	}
 
-	return Resolve(ctx, dir)
+	// A stub inside a live workspace whose members cover it is answered for
+	// that workspace, and the build directory reported is the live one's. Only
+	// an answer for the stub's own workspace says anything about dir.
+	m, ok := readMetadata(ctx, dir)
+	if !ok || !sameDir(m.WorkspaceRoot, dir) {
+		return "", false
+	}
+	return m.buildDir()
+}
+
+// sameDir compares two directories as Cargo sees them, which is with symlinks
+// resolved.
+func sameDir(a, b string) bool {
+	return a != "" && b != "" && physical(a) == physical(b)
 }
 
 // ProbeAll probes dirs concurrently and reports what each one resolved to.
+//
+// Probes that need the same missing directory recreated run one after another.
+// Run together, the first to finish cannot remove a parent another is still
+// inside, and the other found it already there and never owned it, so it would
+// be left behind. Probes in unrelated trees still run at once.
 func ProbeAll(ctx context.Context, dirs []string) []Mapping {
 	if len(dirs) == 0 {
 		return nil
+	}
+
+	groups := map[string][]string{}
+	var order []string
+	for _, d := range dirs {
+		top := topMissing(d)
+		if _, ok := groups[top]; !ok {
+			order = append(order, top)
+		}
+		groups[top] = append(groups[top], d)
 	}
 
 	var (
 		mu  sync.Mutex
 		wg  sync.WaitGroup
 		out []Mapping
-		ch  = make(chan string)
+		ch  = make(chan []string)
 	)
 
 	workers := runtime.NumCPU()
@@ -115,24 +143,42 @@ func ProbeAll(ctx context.Context, dirs []string) []Mapping {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for d := range ch {
-				bd, ok := Probe(ctx, d)
-				if !ok {
-					continue
+			for group := range ch {
+				for _, d := range group {
+					if ctx.Err() != nil {
+						break
+					}
+					bd, ok := Probe(ctx, d)
+					if !ok {
+						continue
+					}
+					mu.Lock()
+					out = append(out, Mapping{Workspace: d, BuildDir: bd})
+					mu.Unlock()
 				}
-				mu.Lock()
-				out = append(out, Mapping{Workspace: d, BuildDir: bd})
-				mu.Unlock()
 			}
 		}()
 	}
-	for _, d := range dirs {
+	for _, top := range order {
 		select {
-		case ch <- d:
+		case ch <- groups[top]:
 		case <-ctx.Done():
 		}
 	}
 	close(ch)
 	wg.Wait()
 	return out
+}
+
+// topMissing is the highest directory a probe of dir would have to create, or
+// dir itself when its parent exists. Two probes can only collide when this is
+// the same for both.
+func topMissing(dir string) string {
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir || exists(parent) {
+			return dir
+		}
+		dir = parent
+	}
 }

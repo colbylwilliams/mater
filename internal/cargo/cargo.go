@@ -17,13 +17,22 @@ import (
 type metadata struct {
 	BuildDirectory  string `json:"build_directory"`
 	TargetDirectory string `json:"target_directory"`
+	WorkspaceRoot   string `json:"workspace_root"`
 }
 
 // Resolve reports the build directory Cargo would use for the workspace at
 // dir. `--no-deps --offline` answers without building or touching Cargo.lock.
 func Resolve(ctx context.Context, dir string) (string, bool) {
-	if _, err := os.Stat(filepath.Join(dir, "Cargo.toml")); err != nil {
+	m, ok := readMetadata(ctx, dir)
+	if !ok {
 		return "", false
+	}
+	return m.buildDir()
+}
+
+func readMetadata(ctx context.Context, dir string) (metadata, bool) {
+	if _, err := os.Stat(filepath.Join(dir, "Cargo.toml")); err != nil {
+		return metadata{}, false
 	}
 
 	cmd := exec.CommandContext(ctx, "cargo", "metadata", "--no-deps", "--format-version", "1", "--offline")
@@ -31,15 +40,19 @@ func Resolve(ctx context.Context, dir string) (string, bool) {
 	cmd.Stderr = nil
 	out, err := cmd.Output()
 	if err != nil {
-		return "", false
+		return metadata{}, false
 	}
 
 	var m metadata
 	if err := json.Unmarshal(out, &m); err != nil {
-		return "", false
+		return metadata{}, false
 	}
-	// build_directory is the split-output layout this tool depends on;
-	// target_directory is the fallback for a Cargo that predates it.
+	return m, true
+}
+
+// buildDir prefers build_directory, the split-output layout this tool depends
+// on; target_directory is the fallback for a Cargo that predates it.
+func (m metadata) buildDir() (string, bool) {
 	if m.BuildDirectory != "" {
 		return m.BuildDirectory, true
 	}
