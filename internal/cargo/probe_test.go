@@ -2,7 +2,9 @@ package cargo
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -55,6 +57,52 @@ func TestProbeLeavesNoTrace(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("Probe left %d entr(ies) behind in the sandbox: %v", len(entries), entries)
+	}
+}
+
+// Siblings under a deleted parent all need that parent recreated. Probed at
+// once, whichever finishes first cannot remove the parent while another is
+// still inside it, and a probe that found the parent already there never owned
+// it, so the batch as a whole has to give it back.
+func TestProbeAllLeavesNoTraceWhenProbesShareAParent(t *testing.T) {
+	dir := t.TempDir()
+	var dirs []string
+	for i := range 16 {
+		dirs = append(dirs, filepath.Join(dir, "gone", "parent", fmt.Sprintf("worktree-%d", i)))
+	}
+	// Nested probes share their missing ancestors too.
+	dirs = append(dirs, filepath.Join(dir, "gone"), filepath.Join(dir, "gone", "parent"))
+
+	ProbeAll(context.Background(), dirs)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("ProbeAll left %d entr(ies) behind in the sandbox: %v", len(entries), entries)
+	}
+}
+
+// A stub inside a live workspace whose members glob covers it is answered for
+// that workspace, so the build directory Cargo reports is the live one's.
+// Accepting it would record live output against a path about to vanish, and
+// the next prune would take it as an orphan.
+func TestProbeRejectsAnAnswerForAnEnclosingWorkspace(t *testing.T) {
+	if _, err := exec.LookPath("cargo"); err != nil {
+		t.Skip("cargo is not installed")
+	}
+	live := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(live, "crates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n"
+	if err := os.WriteFile(filepath.Join(live, "Cargo.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if bd, ok := Probe(context.Background(), filepath.Join(live, "crates", "gone")); ok {
+		t.Errorf("Probe accepted the enclosing workspace's build directory %s", bd)
 	}
 }
 

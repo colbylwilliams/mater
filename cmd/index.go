@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,10 +23,10 @@ func newIndexCmd() *cobra.Command {
 		Short:   "Inspect and maintain the build-directory index",
 		Long: `The index records which workspace produced each build directory.
 
-Nothing inside a build directory names its workspace, so the link has to be
-observed while the workspace still exists. That record is the only thing that
-lets a directory later be identified as an orphan, which is why 'prune' can
-never touch output it has not seen before.`,
+Nothing inside a build directory names its workspace, so the link is observed
+while the workspace still exists, or proven afterwards by 'index bootstrap'.
+That record is the only thing that lets a directory later be identified as an
+orphan, which is why 'prune' can never touch output it cannot attribute.`,
 	}
 	cmd.AddCommand(newIndexShowCmd(), newIndexRefreshCmd(), newIndexBootstrapCmd())
 	return cmd
@@ -143,18 +144,28 @@ func newIndexBootstrapCmd() *cobra.Command {
 		Long: `Recover ownership of build directories the index never saw.
 
 A directory with no recorded workspace can never be recognised as an orphan, so
-it accumulates untouched. Two records survive a deleted worktree: Copilot
-session state, and git's worktree registry. A deleted path can still be hashed,
-so those rows are recoverable after the fact.
+it accumulates untouched. A deleted path can still be hashed, so ownership is
+recoverable after the fact from any record of where a workspace lived:
+
+  - the directory's own dep-info, which names by absolute path anything the
+    build reached through one: a clippy.toml, a path dependency outside the
+    workspace, or an env! value such as CARGO_MANIFEST_DIR
+  - Copilot session state
+  - git's worktree registry
+
+Each is only a lead. A mapping is recorded when Cargo, asked about a deleted
+path as a workspace of its own, answers with the very directory in question.
 
 The hash is a pure function of the workspace path, but Cargo canonicalises that
 path before hashing, so asking about a path requires a manifest to exist there.
 A stub is written, queried, and taken back. A path that already exists is never
 probed, and nothing is removed that was not written here.
 
-The probe window is derived from the oldest surviving unattributed directory,
-which keeps the number of paths briefly occupied to a handful rather than every
-worktree ever deleted.`,
+Dep-info leads are tried first, shallowest missing directory first. They are
+kept below your home directory, outside Cargo's and rustup's own trees, and out
+of any Cargo project that still exists. The window for the other two is derived
+from the oldest surviving unattributed directory, which keeps the number of
+paths briefly occupied to a handful rather than every worktree ever deleted.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
@@ -175,29 +186,58 @@ worktree ever deleted.`,
 				return sv.Index.Save()
 			}
 
+			leads := map[string][]string{}
+			for _, it := range unknown {
+				if n := cargo.Nominate(it.Path, cfg.BuildRoot); len(n) > 0 {
+					leads[it.Path] = n
+				}
+			}
+
 			cutoff, err := probeCutoff(since, unknown)
 			if err != nil {
 				return err
 			}
 			candidates := probeCandidates(sv, cfg, cutoff)
 
-			u.Printf("%d build director%s unattributed; %d deleted worktree%s active since %s\n",
+			u.Printf("%d build director%s unattributed; %d name%s a missing path in dep-info; %d deleted worktree%s active since %s\n",
 				len(unknown), map[bool]string{true: "y", false: "ies"}[len(unknown) == 1],
+				len(leads), map[bool]string{true: "s", false: ""}[len(leads) == 1],
 				len(candidates), mater.Plural(len(candidates)), cutoff.Format("2006-01-02"))
 
-			if dryRun {
-				u.Note("\nwould probe most-recent-first, stopping once all are matched:")
-				for i, p := range candidates {
-					if i == 5 {
-						u.Note("  … and %d more", len(candidates)-5)
-						break
-					}
-					u.Note("  %s", filepath.Base(p))
-				}
+			if len(leads) == 0 && len(candidates) == 0 {
+				u.Warning("nothing to probe — these directories belong to repos outside the scanned roots")
 				return nil
 			}
-			if len(candidates) == 0 {
-				u.Warning("no deleted worktrees to probe — these directories belong to repos outside the scanned roots")
+
+			if dryRun {
+				if len(leads) > 0 {
+					u.Note("\nwould probe the missing paths each directory's dep-info names, shallowest first:")
+					for _, it := range unknown {
+						n, ok := leads[it.Path]
+						if !ok {
+							continue
+						}
+						more := ""
+						if len(n) > 1 {
+							more = fmt.Sprintf("  (+%d more)", len(n)-1)
+						}
+						u.Note("  %s  ←  %s%s", mater.ShortPath(it.Path), mater.ShortPath(n[0]), more)
+					}
+				}
+				if len(candidates) > 0 {
+					verb := "would probe"
+					if len(leads) > 0 {
+						verb = "then"
+					}
+					u.Note("\n%s deleted worktrees most-recent-first, stopping once all are matched:", verb)
+					for i, p := range candidates {
+						if i == 5 {
+							u.Note("  … and %d more", len(candidates)-5)
+							break
+						}
+						u.Note("  %s", filepath.Base(p))
+					}
+				}
 				return nil
 			}
 
@@ -207,12 +247,17 @@ worktree ever deleted.`,
 			}
 
 			u.Section("Probing")
+			tried := map[string]struct{}{}
 			matched, probed := 0, 0
-			for len(candidates) > 0 && len(remaining) > 0 {
-				n := min(24, len(candidates))
-				batch := candidates[:n]
-				candidates = candidates[n:]
-				probed += n
+			probe := func(paths []string) {
+				var batch []string
+				for _, p := range paths {
+					if _, dup := tried[p]; !dup {
+						tried[p] = struct{}{}
+						batch = append(batch, p)
+					}
+				}
+				probed += len(batch)
 
 				for _, m := range cargo.ProbeAll(ctx(cmd), batch) {
 					if _, want := remaining[m.BuildDir]; !want {
@@ -224,6 +269,30 @@ worktree ever deleted.`,
 					label := sv.Sessions.Label(m.Workspace)
 					u.Success("%s  ←  %s", mater.ShortPath(m.BuildDir), label)
 				}
+			}
+
+			// A directory's own dep-info points at its own workspace, so its
+			// nominees go first: each round tries the next nominee of every
+			// directory still unmatched.
+			for round := 0; len(remaining) > 0; round++ {
+				var batch []string
+				for _, it := range unknown {
+					if _, want := remaining[it.Path]; !want {
+						continue
+					}
+					if n := leads[it.Path]; round < len(n) {
+						batch = append(batch, n[round])
+					}
+				}
+				if len(batch) == 0 {
+					break
+				}
+				probe(batch)
+			}
+			for len(candidates) > 0 && len(remaining) > 0 {
+				n := min(24, len(candidates))
+				probe(candidates[:n])
+				candidates = candidates[n:]
 			}
 
 			if err := sv.Index.Save(); err != nil {

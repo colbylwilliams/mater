@@ -272,7 +272,7 @@ ever use it again, so it is removed regardless of age.
 Nothing inside a build directory names the workspace that produced it, so the
 link is recorded in the index as each workspace is seen. A directory is only
 ever called an orphan when the index holds a path for it that no longer exists,
-which is what keeps output from an unscanned repo out of reach of a bare prune.
+which is what keeps output mater cannot attribute out of reach of a bare prune.
 
 --stale widens the selection to include output that has sat idle past a
 threshold, attributed or not: age is measured from the output itself, so
