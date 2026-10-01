@@ -59,7 +59,7 @@ filesystem reports it directly, so it needs no walk.`,
 			}
 			if len(items) == 0 {
 				u.Note("no build output found under %s", mater.ShortPath(cfg.BuildRoot))
-				reportFree(u, volumes(cfg.BuildRoot, nil))
+				u.Ledger(freeRows(u, volumes(cfg.BuildRoot, nil)), 0)
 				return nil
 			}
 
@@ -79,9 +79,10 @@ filesystem reports it directly, so it needs no walk.`,
 				}
 			})
 
-			itemTable(u, items, !orphansOnly)
-			summarise(u, items, countOrphans(items), "total:")
-			reportFree(u, volumes(cfg.BuildRoot, items))
+			foot := footer(u, items, countOrphans(items), "total", volumes(cfg.BuildRoot, items))
+			width := itemTable(u, items, !orphansOnly, foot)
+			u.Blank()
+			u.Ledger(foot, width)
 			u.Blank()
 			return nil
 		},

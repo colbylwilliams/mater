@@ -84,7 +84,8 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	// --yes is allowed to stage before sizing.
 	if o.dryRun || !o.yes {
 		sel.Items = measure(u, sel.Items, "sizing")
-		itemTable(u, sel.Items, o.scope != mater.ScopeOrphans)
+		foot := footer(u, sel.Items, sel.Orphans, "reclaimable", volumes(cfg.BuildRoot, sel.Items))
+		width := itemTable(u, sel.Items, o.scope != mater.ScopeOrphans, foot)
 
 		for _, l := range leftovers {
 			pending := reap.Pending(l)
@@ -92,14 +93,12 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 				mater.ShortPath(l), pending, mater.Plural(pending))
 		}
 
-		prefix := "reclaimable:"
-		if o.dryRun {
-			prefix = "dry run:"
-		}
-		summarise(u, sel.Items, sel.Orphans, prefix)
-		reportFree(u, volumes(cfg.BuildRoot, sel.Items))
+		u.Blank()
+		u.Ledger(foot, width)
 
 		if o.dryRun {
+			u.Blank()
+			u.Note("dry run — nothing removed")
 			return nil
 		}
 
@@ -148,7 +147,7 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 				sel.Items[i].Sized = true
 			}
 		}
-		itemTable(u, sel.Items, o.scope != mater.ScopeOrphans)
+		itemTable(u, sel.Items, o.scope != mater.ScopeOrphans, nil)
 	}
 
 	if err := staging.WriteManifest(); err != nil {
