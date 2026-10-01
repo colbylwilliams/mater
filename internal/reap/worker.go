@@ -117,22 +117,29 @@ func isFinderMetadata(name string) bool {
 	return name == ".DS_Store" || strings.HasPrefix(name, "._")
 }
 
+// Worker is a delete running in a process of its own.
+type Worker struct {
+	proc *os.Process
+}
+
 // Spawn starts a detached worker for dir. globalFlags are forwarded so the
 // worker resolves the same configuration as its parent; without them it would
 // log to, and prune shards under, the default paths instead.
 //
 // Setsid puts the child in its own session so it survives the terminal that
-// launched it, which is the whole point of staging: the caller returns
-// immediately.
-func Spawn(dir string, globalFlags ...string) error {
+// launched it, which is the whole point of staging: the caller need not stay.
+// A caller that does stay to Wait is still only watching. An interrupt is
+// delivered to the terminal's foreground process group, which the worker has
+// left, so stopping the watch never stops the delete.
+func Spawn(dir string, globalFlags ...string) (*Worker, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("locate mater binary: %w", err)
+		return nil, fmt.Errorf("locate mater binary: %w", err)
 	}
 
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", os.DevNull, err)
+		return nil, fmt.Errorf("open %s: %w", os.DevNull, err)
 	}
 	defer devNull.Close()
 
@@ -140,11 +147,29 @@ func Spawn(dir string, globalFlags ...string) error {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = devNull, devNull, devNull
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start background delete: %w", err)
+		return nil, fmt.Errorf("start background delete: %w", err)
 	}
-	// The child is deliberately not waited on; releasing it hands the process
-	// to init rather than leaving a zombie when this process exits.
-	return cmd.Process.Release()
+	return &Worker{proc: cmd.Process}, nil
+}
+
+// Wait blocks until the worker exits and reports whether it ran to a clean
+// end. A worker that restore stops between items has ended cleanly too; only
+// the log tells the two apart.
+func (w *Worker) Wait() error {
+	state, err := w.proc.Wait()
+	if err != nil {
+		return fmt.Errorf("wait for background delete: %w", err)
+	}
+	if !state.Success() {
+		return fmt.Errorf("background delete ended with %s", state)
+	}
+	return nil
+}
+
+// Release lets the worker run on unobserved. It is never waited on, and needs
+// no waiting: once this process exits, init adopts the worker and reaps it.
+func (w *Worker) Release() error {
+	return w.proc.Release()
 }
 
 func plural(n int) string {
