@@ -40,10 +40,13 @@ func newIndexShowCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
 
+			// Recorded here rather than through scan, so that the footer below
+			// claims only what reached the file.
 			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{})
 			if err != nil {
 				return err
 			}
+			saveErr := sv.Index.Save()
 
 			width := u.Width()/2 - 6
 			if width < 24 {
@@ -74,12 +77,21 @@ func newIndexShowCmd() *cobra.Command {
 
 			if len(rows) == 0 {
 				u.Note("no build directories under %s", mater.ShortPath(cfg.BuildRoot))
+				if saveErr != nil {
+					u.Warning("%s could not be updated: %v", mater.ShortPath(cfg.IndexFile()), saveErr)
+				}
 				return nil
 			}
 
 			u.Table([]string{"BUILD DIR", "STATE", "WORKSPACE"}, rows, nil)
-			u.Printf("\n%d mapping%s recorded in %s\n",
-				sv.Index.Len(), mater.Plural(sv.Index.Len()), mater.ShortPath(cfg.IndexFile()))
+			if saveErr != nil {
+				u.Blank()
+				u.Warning("%d mapping%s known, but %s could not be updated: %v",
+					sv.Index.Len(), mater.Plural(sv.Index.Len()), mater.ShortPath(cfg.IndexFile()), saveErr)
+			} else {
+				u.Printf("\n%d mapping%s recorded in %s\n",
+					sv.Index.Len(), mater.Plural(sv.Index.Len()), mater.ShortPath(cfg.IndexFile()))
+			}
 			if unattributed > 0 {
 				u.Note("  %d unattributed — try 'mater index bootstrap'", unattributed)
 			}
@@ -94,15 +106,17 @@ func newIndexRefreshCmd() *cobra.Command {
 		Short: "Record the build directory of each live workspace",
 		Long: `Ask Cargo which build directory each workspace maps to, and record the answer.
 
-This runs automatically before every prune and nuke. Run it by hand to add a
-workspace outside the auto-discovered worktree roots; a path given here is
-resolved even though it would not normally be scanned.`,
+Every command that reports or acts on ownership does this first for each
+checkout mater discovers, so those never need it run by hand. Run it to record
+a workspace outside them: a path given here is resolved even though it would
+not normally be scanned. To keep such a workspace in view for good, add it to
+roots in the config instead.`,
 		Example: `  mater index refresh
   mater index refresh ~/code/some-other-rust-repo`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			u, cfg := shared.ui, shared.cfg
+			u := shared.ui
 
-			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{Refresh: true})
+			sv, err := scan(cmd, mater.SurveyOptions{})
 			if err != nil {
 				return err
 			}
@@ -170,7 +184,7 @@ paths briefly occupied to a handful rather than every worktree ever deleted.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
 
-			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{Refresh: true})
+			sv, err := scan(cmd, mater.SurveyOptions{})
 			if err != nil {
 				return err
 			}

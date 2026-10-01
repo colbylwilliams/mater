@@ -37,6 +37,11 @@ func readMetadata(ctx context.Context, dir string) (metadata, bool) {
 
 	cmd := exec.CommandContext(ctx, "cargo", "metadata", "--no-deps", "--format-version", "1", "--offline")
 	cmd.Dir = dir
+	// Every survey asks this of each Rust checkout, and rustup would otherwise
+	// download any toolchain a checkout pins but this machine lacks, silently,
+	// before Cargo answered. Such a checkout goes unanswered instead, as if it
+	// were not a Rust checkout at all.
+	cmd.Env = append(os.Environ(), "RUSTUP_AUTO_INSTALL=0")
 	cmd.Stderr = nil
 	out, err := cmd.Output()
 	if err != nil {

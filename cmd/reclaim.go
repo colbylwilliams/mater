@@ -50,7 +50,7 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 		age = parsed
 	}
 
-	sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{Refresh: true, DetectInUse: true})
+	sv, err := scan(cmd, mater.SurveyOptions{DetectInUse: true})
 	if err != nil {
 		return err
 	}
@@ -75,11 +75,6 @@ func runReclaim(cmd *cobra.Command, o *reclaimOpts) error {
 	reportSkipped(u, sel.Skipped)
 
 	if sel.Empty() && len(leftovers) == 0 {
-		// Even a run that removes nothing has learned where today's build
-		// directories live, and that record is what detects tomorrow's orphan.
-		if err := sv.Index.Save(); err != nil {
-			return err
-		}
 		u.Note("nothing to reclaim")
 		return nil
 	}

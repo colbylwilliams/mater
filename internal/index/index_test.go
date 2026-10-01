@@ -104,6 +104,149 @@ func TestSaveIsAtomic(t *testing.T) {
 	}
 }
 
+// Every survey saves, including the first one on a machine that has never
+// built anything. With nothing to record, that save must not conjure up the
+// build root just to hold an empty file.
+func TestSaveWithNothingToRecordWritesNothing(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "build-root")
+
+	ix, err := Load(filepath.Join(root, ".index"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix.Set(filepath.Join(root, "ab", "never-built"), t.TempDir())
+	if err := ix.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Errorf("Save created %s with nothing to record (stat: %v)", root, err)
+	}
+}
+
+// Every command records what it learns, so runs overlap: a prune can sit at its
+// prompt while another run records a workspace built meanwhile. Each save has
+// to keep what the others recorded after it loaded, whether or not it learned
+// anything itself.
+func TestSaveKeepsWhatOverlappingRunsRecorded(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "ab", "first")
+	second := filepath.Join(dir, "cd", "second")
+	third := filepath.Join(dir, "ef", "third")
+	ws := filepath.Join(dir, "workspace")
+	mkdirs(t, first, second, third, ws)
+
+	path := filepath.Join(dir, ".index")
+	seed := New(path)
+	seed.Set(first, ws)
+	if err := seed.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	runs := make([]*Index, 3)
+	for i := range runs {
+		ix, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs[i] = ix
+	}
+	runs[0].Set(second, ws)
+	runs[1].Set(third, ws)
+	for i, ix := range runs {
+		if err := ix.Save(); err != nil {
+			t.Fatalf("run %d: Save: %v", i, err)
+		}
+	}
+
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{first, second, third} {
+		if _, ok := reloaded.Workspace(d); !ok {
+			t.Errorf("%s was lost to an overlapping save", filepath.Base(d))
+		}
+	}
+}
+
+// What a run loaded and never touched is no newer than the file, so a save
+// must not put it back over a different answer another run recorded since.
+// What the run did set is its own answer, and that one stands.
+func TestSaveNeverRevertsAnotherRunsAnswer(t *testing.T) {
+	dir := t.TempDir()
+	mine := filepath.Join(dir, "ab", "mine")
+	theirs := filepath.Join(dir, "cd", "theirs")
+	mkdirs(t, mine, theirs)
+
+	path := filepath.Join(dir, ".index")
+	seed := New(path)
+	seed.Set(mine, "/old/mine")
+	seed.Set(theirs, "/old/theirs")
+	if err := seed.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	slow, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fast, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fast.Set(mine, "/fast/mine")
+	fast.Set(theirs, "/fast/theirs")
+	if err := fast.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	slow.Set(mine, "/slow/mine")
+	if err := slow.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := reloaded.Workspace(theirs); got != "/fast/theirs" {
+		t.Errorf("untouched mapping = %q, want the newer %q", got, "/fast/theirs")
+	}
+	if got, _ := reloaded.Workspace(mine); got != "/slow/mine" {
+		t.Errorf("mapping this run set = %q, want its own %q", got, "/slow/mine")
+	}
+}
+
+// A mapping dropped on purpose stays dropped, though the file it is merged
+// into still holds it.
+func TestForgetSurvivesTheMerge(t *testing.T) {
+	dir := t.TempDir()
+	build := filepath.Join(dir, "ab", "cdef")
+	mkdirs(t, build)
+
+	path := filepath.Join(dir, ".index")
+	seed := New(path)
+	seed.Set(build, dir)
+	if err := seed.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	ix, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix.Forget(build)
+	if err := ix.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.Workspace(build); ok {
+		t.Error("a forgotten mapping came back from the file")
+	}
+}
+
 func TestMalformedLinesAreIgnored(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".index")

@@ -25,12 +25,16 @@ func newListCmd() *cobra.Command {
 
 Build directories are named after their content hash, which is unrecognisable,
 so each row is labelled with the work that produced it: the Copilot session
-that created the worktree, or the checkout's own name.
+that created the worktree, or the checkout's own name. Before anything is
+listed, Cargo is asked which build directory each scanned checkout maps to, so
+output from a brand-new worktree is labelled straight away, and the answer is
+kept for the day that worktree is deleted.
 
-Sizes are measured by walking each tree, which takes a moment. Pass --fast to
-skip it. The listing ends with the free space left on disk either way: the
-filesystem reports it directly, so it needs no walk. A disk with under 100G
-free is flagged in amber, and under 50G in red.`,
+Sizes are measured by walking each tree, which takes a moment. Pass --fast for
+an instant answer: it skips the walk, the process check, and the question to
+Cargo, labelling output as last recorded. The listing ends with the free space
+left on disk either way: the filesystem reports it directly, so it needs no
+walk. A disk with under 100G free is flagged in amber, and under 50G in red.`,
 		Example: `  # Everything, largest first
   mater list
 
@@ -49,7 +53,7 @@ free is flagged in amber, and under 50G in red.`,
 				return fmt.Errorf("unknown --sort %q: expected size, age, or name", sortBy)
 			}
 
-			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{DetectInUse: !fast})
+			sv, err := scan(cmd, mater.SurveyOptions{DetectInUse: !fast, SkipRefresh: fast})
 			if err != nil {
 				return err
 			}
@@ -91,7 +95,7 @@ free is flagged in amber, and under 50G in red.`,
 
 	f := cmd.Flags()
 	f.BoolVar(&orphansOnly, "orphans", false, "show only output whose workspace is gone")
-	f.BoolVar(&fast, "fast", false, "skip sizing and liveness detection")
+	f.BoolVar(&fast, "fast", false, "skip sizing, liveness detection, and the index refresh")
 	f.StringVar(&sortBy, "sort", "size", "order rows by size, age, or name")
 	return cmd
 }

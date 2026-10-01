@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/colbylwilliams/mater/internal/config"
+	"github.com/colbylwilliams/mater/internal/mater"
 	"github.com/colbylwilliams/mater/internal/ui"
 )
 
@@ -86,6 +87,23 @@ func ctx(cmd *cobra.Command) context.Context {
 		return c
 	}
 	return context.Background()
+}
+
+// scan surveys build output and records whatever the survey learned about
+// ownership. A mapping is only observable while its workspace exists; once the
+// workspace is deleted, an unrecorded one comes back only if 'index bootstrap'
+// can prove it. So every command records what it saw rather than leaving that
+// to a later prune. The survey is accurate whether or not the record is
+// written, so a failure to write is reported rather than fatal.
+func scan(cmd *cobra.Command, opts mater.SurveyOptions) (*mater.Survey, error) {
+	sv, err := mater.Scan(ctx(cmd), shared.cfg, opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := sv.Index.Save(); err != nil {
+		shared.ui.Warning("index not updated: %v", err)
+	}
+	return sv, nil
 }
 
 // exists is a small readability helper used by the setup commands.

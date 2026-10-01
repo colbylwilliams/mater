@@ -32,10 +32,13 @@ type Survey struct {
 
 // SurveyOptions controls how much work a survey does.
 type SurveyOptions struct {
-	// Refresh re-resolves live workspaces through Cargo so the index learns
-	// mappings for workspaces created since the last run. Skipping it keeps a
-	// read-only command fast at the cost of attributing brand-new output.
-	Refresh bool
+	// SkipRefresh trusts the index as recorded instead of first asking Cargo
+	// which build directory each live workspace maps to. That question is what
+	// attributes output from a workspace no earlier run has seen, and what
+	// re-checks an apparent orphan against every workspace Cargo can still
+	// answer for. It costs one `cargo metadata` per Rust checkout, run several
+	// at a time, so only a caller asked for an instant answer should skip it.
+	SkipRefresh bool
 
 	// DetectInUse takes a process snapshot. Only the commands that delete
 	// anything need it.
@@ -52,7 +55,7 @@ func Scan(ctx context.Context, cfg *config.Config, opts SurveyOptions) (*Survey,
 	sess := sessions.Load(cfg.SessionState)
 	checkouts := discoverCheckouts(cfg, sess)
 
-	if opts.Refresh {
+	if !opts.SkipRefresh {
 		var rust []string
 		for _, c := range checkouts {
 			if _, err := os.Stat(filepath.Join(c, "Cargo.toml")); err == nil {
@@ -66,6 +69,8 @@ func Scan(ctx context.Context, cfg *config.Config, opts SurveyOptions) (*Survey,
 	ix.Compact()
 
 	s := &Survey{Index: ix, Sessions: sess, Checkouts: checkouts}
+	// The snapshot comes after the Cargo queries, never alongside them: a
+	// delete acts on it, so it has to be as fresh as the survey can make it.
 	if opts.DetectInUse {
 		s.Process = inuse.Take(ctx)
 	}

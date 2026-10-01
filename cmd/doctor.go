@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,8 +45,8 @@ directory instead of a target/ inside every checkout. That single path is what
 makes a real-time scanning exclusion possible: worktrees come and go, but the
 build root does not.
 
-Nothing here modifies your machine. Where a fix is needed, the command to run
-is printed for you to apply.`,
+Nothing here changes your configuration. Where a fix is needed, the command to
+run is printed for you to apply.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			u, cfg := shared.ui, shared.cfg
@@ -59,9 +61,11 @@ is printed for you to apply.`,
 				checkStaging(cfg.BuildRoot),
 			}
 
+			// Doctor records what it learned like every command, but reports a
+			// failure to write as the index check's verdict, not as a warning.
 			sv, err := mater.Scan(ctx(cmd), cfg, mater.SurveyOptions{})
 			if err == nil {
-				checks = append(checks, checkIndex(sv))
+				checks = append(checks, checkIndex(sv, sv.Index.Save()))
 			}
 
 			u.Section("Checks")
@@ -301,7 +305,20 @@ func checkStaging(buildRoot string) check {
 	}
 }
 
-func checkIndex(sv *mater.Survey) check {
+func checkIndex(sv *mater.Survey, saveErr error) check {
+	if saveErr != nil {
+		cause := saveErr
+		var pe *fs.PathError
+		if errors.As(saveErr, &pe) {
+			cause = pe.Err
+		}
+		return check{
+			name:   "index",
+			result: warn,
+			detail: fmt.Sprintf("not writable (%v) — nothing new is recorded", cause),
+		}
+	}
+
 	unknown := 0
 	for _, it := range sv.Items {
 		if it.Kind == mater.KindBuildDir && it.Workspace == "" {
